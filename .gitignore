@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+# Local environments and secrets
+.venv/
+venv/
+env/
+.env
+.env.*
+.streamlit/secrets.toml
+
+# Generated database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Uploaded resume files
+resumes/*
+!resumes/.gitkeep
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/settings.json

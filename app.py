@@ -1,0 +1,912 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+from database import get_db_connection, check_password, hash_password
+import bcrypt
+import os
+import base64
+
+
+# --- Page Config ---
+st.set_page_config(page_title="Career Progress Tracker", layout="wide", page_icon="💼")
+
+# --- Constants ---
+RESUME_FOLDER = "resumes"
+if not os.path.exists(RESUME_FOLDER):
+    os.makedirs(RESUME_FOLDER)
+
+# --- CSS for Badges ---
+st.markdown("""
+<style>
+    .status-badge {
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+        color: white;
+        display: inline-block;
+    }
+    .badge-active { background-color: #28a745; }
+    .badge-interview { background-color: #007bff; }
+    .badge-oa { background-color: #ffc107; color: black; }
+    .badge-offer { background-color: #6f42c1; }
+    .badge-rejected { background-color: #dc3545; }
+    .badge-saved { background-color: #6c757d; }
+    .badge-other { background-color: #17a2b8; }
+</style>
+""", unsafe_allow_html=True)
+
+def get_badge_class(stage):
+    stage = stage.lower()
+    if "applied" in stage or "active" in stage: return "badge-active"
+    if "interview" in stage or "call" in stage: return "badge-interview"
+    if "oa" in stage or "assessment" in stage or "challenge" in stage: return "badge-oa"
+    if "offer" in stage: return "badge-offer"
+    if "rejected" in stage: return "badge-rejected"
+    if "saved" in stage: return "badge-saved"
+    return "badge-other"
+
+# --- Auth State ---
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'user_id' not in st.session_state:
+    st.session_state.user_id = None
+if 'username' not in st.session_state:
+    st.session_state.username = None
+
+# --- Auth Functions ---
+def login_page():
+    st.title("💼 Unified Job Application Tracker")
+    tab1, tab2 = st.tabs(["Login", "Create New Account"])
+
+    with tab1:
+        with st.form("login_form"):
+            u = st.text_input("Username", key="login_username")
+            p = st.text_input("Password", type="password", key="login_password")
+            if st.form_submit_button("Login", key="login_submit"):
+                conn = get_db_connection()
+                user = conn.execute("SELECT * FROM users WHERE username = ?", (u,)).fetchone()
+                conn.close()
+                if user and check_password(p, user['password_hash']):
+                    st.session_state.authenticated = True
+                    st.session_state.user_id = user['user_id']
+                    st.session_state.username = user['username']
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password")
+
+    with tab2:
+        with st.form("register_form"):
+            ru = st.text_input("Username", key="reg_username")
+            re = st.text_input("Email", key="reg_email")
+            rp = st.text_input("Password", type="password", key="reg_password")
+            rpc = st.text_input("Confirm Password", type="password", key="reg_confirm_password")
+            if st.form_submit_button("Register", key="reg_submit"):
+                if not (ru and re and rp and rpc):
+                    st.warning("Please fill all fields")
+                elif rp != rpc:
+                    st.error("Passwords do not match")
+                else:
+                    try:
+                        conn = get_db_connection()
+                        # Check if username or email exists
+                        existing_user = conn.execute("SELECT * FROM users WHERE username = ? OR email = ?", (ru, re)).fetchone()
+                        if existing_user:
+                            if existing_user['username'] == ru:
+                                st.error("Username is already taken")
+                            else:
+                                st.error("Email is already registered")
+                        else:
+                            phash = hash_password(rp)
+                            conn.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)", (ru, re, phash))
+                            conn.commit()
+                            st.success("Account created successfully. You can now log in.")
+                        conn.close()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+def logout():
+    st.session_state.authenticated = False
+    st.session_state.user_id = None
+    st.session_state.username = None
+    st.rerun()
+
+# --- MAIN APP ---
+def main_app():
+    st.sidebar.title(f"Welcome, {st.session_state.username}!")
+    if st.sidebar.button("Logout", key="sidebar_logout_btn"):
+        logout()
+
+    nav = st.sidebar.radio("Navigation",
+        ["Dashboard", "Applications", "Interviews", "Resumes", "Analytics", "Reminders", "Settings"],
+        key="main_nav")
+
+    user_id = st.session_state.user_id
+
+    if nav == "Dashboard":
+        render_dashboard(user_id)
+    elif nav == "Applications":
+        render_applications(user_id)
+    elif nav == "Interviews":
+        render_interviews(user_id)
+    elif nav == "Resumes":
+        render_resumes(user_id)
+    elif nav == "Analytics":
+        render_analytics(user_id)
+    elif nav == "Reminders":
+        render_reminders(user_id)
+    elif nav == "Settings":
+        render_settings(user_id)
+
+# --- Components ---
+def render_dashboard(user_id):
+    st.header("🚀 Career Dashboard")
+
+    conn = get_db_connection()
+    apps_df = pd.read_sql_query("SELECT * FROM applications WHERE user_id = ?", conn, params=(user_id,))
+    conn.close()
+
+    if apps_df.empty:
+        st.info("No applications found. Start by adding one!")
+        return
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    total = len(apps_df)
+    active = len(apps_df[apps_df['overall_status'] == 'Active'])
+    offers = len(apps_df[apps_df['overall_status'] == 'Offer'])
+    rejected = len(apps_df[apps_df['overall_status'] == 'Rejected'])
+    oa_count = len(apps_df[apps_df['current_stage'].str.contains('Assessment|OA|Challenge', case=False, na=False)])
+
+    col1.metric("Total Apps", total)
+    col2.metric("Active", active)
+    col3.metric("OA/Tests", oa_count)
+    col4.metric("Offers", offers)
+    col5.metric("Rejections", rejected)
+
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("Applications by Status")
+        status_counts = apps_df['overall_status'].value_counts().reset_index()
+        status_counts.columns = ['Status', 'Count']
+        fig = px.pie(status_counts, values='Count', names='Status', hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Pastel)
+        st.plotly_chart(fig, use_container_width=True, key="dashboard_status_pie")
+    with c2:
+        st.subheader("Application Timeline")
+        apps_df['application_date'] = pd.to_datetime(apps_df['application_date'])
+        timeline_df = apps_df.set_index('application_date').resample('M').size().reset_index(name='Count')
+        fig = px.line(timeline_df, x='application_date', y='Count', markers=True)
+        fig.update_xaxes(dtick="M1", tickformat="%b %Y")
+        st.plotly_chart(fig, use_container_width=True, key="dashboard_timeline_line")
+
+def render_applications(user_id):
+    st.header("📋 Application Management")
+
+    with st.expander("➕ Add New Application"):
+        with st.form("add_app_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            company = c1.text_input("Company Name*", key="add_app_company")
+            role = c2.text_input("Job Title*", key="add_app_role")
+            c3, c4 = st.columns(2)
+            loc = c3.text_input("Location", key="add_app_loc")
+            jtype = c4.selectbox("Job Type", ["Internship", "Full-time", "Part-time", "Other"], key="add_app_type")
+            c5, c6 = st.columns(2)
+            date = c5.date_input("Application Date", datetime.now(), key="add_app_date")
+            url = c6.text_input("Job URL", key="add_app_url")
+            salary = st.text_input("Salary/Stipend (Optional)", key="add_app_salary")
+
+            conn = get_db_connection()
+            resumes_df = pd.read_sql_query("SELECT resume_id, resume_name FROM resumes WHERE user_id = ?", conn, params=(user_id,))
+            conn.close()
+            resume_options = {r['resume_name']: r['resume_id'] for r in resumes_df.to_dict('records')} if not resumes_df.empty else {}
+            selected_resume_name = st.selectbox("Resume Used", options=list(resume_options.keys()), key="add_app_resume")
+
+            notes = st.text_area("Notes", key="add_app_notes")
+            c7, c8 = st.columns(2)
+            overall_status = c7.selectbox("Overall Status", ["Active", "Offer", "Rejected", "Withdrawn"], key="add_app_overall")
+            common_stages = ["Saved", "Applied", "Online Assessment", "Recruiter Call", "Technical Interview", "HR Interview", "Managerial Interview"]
+            stage_choice = c8.selectbox("Current Stage", options=common_stages + ["Custom..."], key="add_app_stage")
+            custom_stage = st.text_input("Enter Custom Stage Name", key="add_app_custom_stage") if stage_choice == "Custom..." else ""
+
+            if st.form_submit_button("Save Application", key="add_app_submit"):
+                if company and role:
+                    final_stage = custom_stage if stage_choice == "Custom..." else stage_choice
+                    if not final_stage:
+                        st.error("Please specify a stage")
+                    else:
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        res_id = resume_options.get(selected_resume_name)
+                        cursor.execute('''
+                            INSERT INTO applications (user_id, company, role, location, job_type, application_date, job_url, salary, current_stage, overall_status, resume_id, notes)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (user_id, company, role, loc, jtype, date, url, salary, final_stage, overall_status, res_id, notes))
+                        app_id = cursor.lastrowid
+                        cursor.execute("INSERT INTO application_history (application_id, stage, notes) VALUES (?, ?, ?)",
+                                       (app_id, final_stage, "Application created"))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"Application to {company} added successfully!")
+                        st.session_state.view_app_id = app_id
+                        st.rerun()
+                else:
+                    st.error("Company and Role are required")
+
+    st.divider()
+    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+    search_q = c1.text_input("🔍 Search Company or Role", key="app_search_q")
+    filter_stage = c2.selectbox("Filter by Stage", ["All"] + ["Offer", "Rejected", "Applied", "Online Assessment"], key="app_filter_stage")
+    filter_status = c3.selectbox("Filter by Status", ["All", "Active", "Offer", "Rejected", "Withdrawn"], key="app_filter_status")
+    filter_type = c4.selectbox("Filter by Type", ["All", "Internship", "Full-time", "Part-time", "Other"], key="app_filter_type")
+    sort_order = st.selectbox("Sort by", ["Newest First", "Oldest First", "Company Name"], key="app_sort")
+
+    conn = get_db_connection()
+    query = "SELECT * FROM applications WHERE user_id = ?"
+    params = [user_id]
+    if search_q:
+        query += " AND (company LIKE ? OR role LIKE ?)"
+        params.extend([f"%{search_q}%", f"%{search_q}%"])
+    if filter_stage != "All":
+        query += " AND current_stage = ?"
+        params.append(filter_stage)
+    if filter_status != "All":
+        query += " AND overall_status = ?"
+        params.append(filter_status)
+    if filter_type != "All":
+        query += " AND job_type = ?"
+        params.append(filter_type)
+
+    apps_df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+
+    if not apps_df.empty:
+        if sort_order == "Newest First": apps_df = apps_df.sort_values('application_date', ascending=False)
+        elif sort_order == "Oldest First": apps_df = apps_df.sort_values('application_date', ascending=True)
+        elif sort_order == "Company Name": apps_df = apps_df.sort_values('company')
+
+    for idx, row in apps_df.iterrows():
+        with st.container():
+            col_info, col_status, col_action = st.columns([3, 1, 1])
+            with col_info:
+                st.markdown(f"**{row['company']}** - {row['role']}")
+                st.caption(f"📅 {row['application_date']} | 📍 {row['location']} | 📄 {row['job_type']}")
+            with col_status:
+                badge_class = get_badge_class(row['current_stage'])
+                st.markdown(f'<span class="status-badge {badge_class}">{row["current_stage"]}</span>', unsafe_allow_html=True)
+            with col_action:
+                if st.button("View Details", key=f"det_{row['application_id']}"):
+                    st.session_state.view_app_id = row['application_id']
+                    st.rerun()
+            st.divider()
+
+    if 'view_app_id' in st.session_state:
+        render_app_detail(st.session_state.view_app_id, user_id)
+
+def render_app_detail(app_id, user_id):
+    st.markdown("---")
+    st.subheader(f"📄 Application Detail: App #{app_id}")
+    conn = get_db_connection()
+    app = conn.execute("SELECT * FROM applications WHERE application_id = ?", (app_id,)).fetchone()
+    if not app:
+        st.error("Application not found")
+        return
+
+    resume_name = "None"
+    if app['resume_id']:
+        res = conn.execute("SELECT resume_name FROM resumes WHERE resume_id = ?", (app['resume_id'],)).fetchone()
+        if res: resume_name = res['resume_name']
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Company:** {app['company']}")
+        st.markdown(f"**Role:** {app['role']}")
+        st.markdown(f"**Location:** {app['location']}")
+        if app['job_url']:
+            st.markdown(f"**URL:** [Open Job Posting]({app['job_url']})")
+        else:
+            st.markdown(f"**URL:** Not provided")
+    with c2:
+        st.markdown(f"**Date:** {app['application_date']}")
+        st.markdown(f"**Type:** {app['job_type']}")
+        st.markdown(f"**Salary:** {app['salary']}")
+        st.markdown(f"**Overall Status:** {app['overall_status']}")
+        st.markdown(f"**Current Stage:** {app['current_stage']}")
+        st.markdown(f"**Resume Used:** {resume_name}")
+
+    st.divider()
+    col_act1, col_act2, col_act3 = st.columns(3)
+    if col_act1.button("✏️ Edit Application", key=f"edit_app_btn_{app_id}"):
+        st.session_state.edit_app_id = app_id
+        st.rerun()
+    if col_act2.button("🗑️ Delete Application", key=f"del_app_btn_{app_id}"):
+        st.session_state.confirm_del_app = app_id
+        st.rerun()
+    if col_act3.button("🎙️ Add Interview", key=f"add_int_app_btn_{app_id}"):
+        st.session_state.add_int_app_id = app_id
+        st.rerun()
+
+    if 'confirm_del_app' in st.session_state and st.session_state.confirm_del_app == app_id:
+        st.warning(f"Are you sure you want to delete the application for {app['company']}?")
+        if st.button("Yes, Delete", key=f"confirm_del_{app_id}"):
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM tasks WHERE application_id = ?", (app_id,))
+            cursor.execute("DELETE FROM interviews WHERE application_id = ?", (app_id,))
+            cursor.execute("DELETE FROM application_history WHERE application_id = ?", (app_id,))
+            cursor.execute("DELETE FROM applications WHERE application_id = ?", (app_id,))
+            conn.commit()
+            conn.close()
+            del st.session_state.confirm_del_app
+            del st.session_state.view_app_id
+            st.success("Application deleted.")
+            st.rerun()
+        if st.button("Cancel", key=f"cancel_del_{app_id}"):
+            del st.session_state.confirm_del_app
+            st.rerun()
+
+    if 'edit_app_id' in st.session_state and st.session_state.edit_app_id == app_id:
+        with st.form("edit_app_form"):
+            st.write("Modify Application Details")
+            c1, c2 = st.columns(2)
+            e_company = c1.text_input("Company", value=app['company'], key=f"e_comp_{app_id}")
+            e_role = c2.text_input("Role", value=app['role'], key=f"e_role_{app_id}")
+            c3, c4 = st.columns(2)
+            e_loc = c3.text_input("Location", value=app['location'], key=f"e_loc_{app_id}")
+            e_type = c4.selectbox("Type", ["Internship", "Full-time", "Part-time", "Other"],
+                                index=["Internship", "Full-time", "Part-time", "Other"].index(app['job_type']) if app['job_type'] in ["Internship", "Full-time", "Part-time", "Other"] else 0, key=f"e_type_{app_id}")
+            c5, c6 = st.columns(2)
+            e_date = c5.date_input("Date", value=datetime.strptime(app['application_date'], '%Y-%m-%d'), key=f"e_date_{app_id}")
+            e_url = c6.text_input("URL", value=app['job_url'], key=f"e_url_{app_id}")
+            e_salary = st.text_input("Salary", value=app['salary'], key=f"e_sal_{app_id}")
+
+            resumes_df = pd.read_sql_query("SELECT resume_id, resume_name FROM resumes WHERE user_id = ?", conn, params=(user_id,))
+            res_options = {r['resume_name']: r['resume_id'] for r in resumes_df.to_dict('records')}
+            e_resume = st.selectbox("Resume", options=list(res_options.keys()),
+                                  index=list(res_options.keys()).index(resume_name) if resume_name in res_options else 0, key=f"e_res_{app_id}")
+            e_notes = st.text_area("Notes", value=app['notes'], key=f"e_notes_{app_id}")
+            c7, c8 = st.columns(2)
+            e_status = c7.selectbox("Overall Status", ["Active", "Offer", "Rejected", "Withdrawn"],
+                                   index=["Active", "Offer", "Rejected", "Withdrawn"].index(app['overall_status']) if app['overall_status'] in ["Active", "Offer", "Rejected", "Withdrawn"] else 0, key=f"e_stat_{app_id}")
+            common_stages = ["Saved", "Applied", "Online Assessment", "Recruiter Call", "Technical Interview", "HR Interview", "Managerial Interview"]
+            e_stage_choice = c8.selectbox("Current Stage", options=common_stages + ["Custom..."],
+                                        index=common_stages.index(app['current_stage']) if app['current_stage'] in common_stages else len(common_stages), key=f"e_stage_{app_id}")
+            e_custom_stage = st.text_input("Custom Stage Name", value=app['current_stage'], key=f"e_cust_stage_{app_id}") if e_stage_choice == "Custom..." else ""
+
+            if st.form_submit_button("Save Changes", key=f"save_edit_{app_id}"):
+                final_stage = e_custom_stage if e_stage_choice == "Custom..." else e_stage_choice
+                if final_stage:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        UPDATE applications SET company=?, role=?, location=?, job_type=?, application_date=?, job_url=?, salary=?, resume_id=?, notes=?, overall_status=?, current_stage=?
+                        WHERE application_id=?
+                    ''', (e_company, e_role, e_loc, e_type, e_date, e_url, e_salary, res_options.get(e_resume), e_notes, e_status, final_stage, app_id))
+                    if final_stage != app['current_stage']:
+                        cursor.execute("INSERT INTO application_history (application_id, stage, notes) VALUES (?, ?, ?)", (app_id, final_stage, "Stage updated via edit"))
+                    conn.commit()
+                    conn.close()
+                    st.success("Application updated!")
+                    del st.session_state.edit_app_id
+                    st.rerun()
+
+    if 'add_int_app_id' in st.session_state and st.session_state.add_int_app_id == app_id:
+        with st.form("add_int_app_form"):
+            st.write("🎙️ Log Interview for this Application")
+            i_round = st.text_input("Round (e.g. Technical 1)")
+            i_date = st.date_input("Date", datetime.now())
+            i_time = st.text_input("Time")
+            i_mode = st.selectbox("Mode", ["Online", "Offline", "Hybrid"])
+            i_result = st.text_input("Result")
+            i_rating = st.slider("Rating", 1, 5, 3)
+            i_topics = st.text_area("Topics (comma separated)")
+            i_well = st.text_area("What went well?")
+            i_imp = st.text_area("What to improve?")
+            i_link = st.text_input("Meeting Link")
+
+            if st.form_submit_button("Save Interview"):
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO interviews (application_id, round, date, time, mode, result, rating, topics, went_well, improvement, meeting_link)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (app_id, i_round, i_date, i_time, i_mode, i_result, i_rating, i_topics, i_well, i_imp, i_link))
+                conn.commit()
+                conn.close()
+                st.success("Interview logged!")
+                del st.session_state.add_int_app_id
+                st.rerun()
+
+    with st.expander("⏰ Add a Task for this Job"):
+        with st.form("add_app_task_form"):
+            t_desc = st.text_input("Task Description")
+            t_date = st.date_input("Deadline")
+            if st.form_submit_button("Save Task"):
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO tasks (application_id, task_description, deadline) VALUES (?, ?, ?)", (app_id, t_desc, t_date))
+                conn.commit()
+                conn.close()
+                st.success("Task added!")
+                st.rerun()
+
+    st.divider()
+    st.write("⏳ **Application Timeline**")
+    history = conn.execute("SELECT * FROM application_history WHERE application_id = ? ORDER BY changed_at ASC", (app_id,)).fetchall()
+    for h in history:
+        st.markdown(f"**{h['changed_at'][:10]}** — {h['stage']} {f'({h['notes']})' if h['notes'] else ''}")
+
+    st.divider()
+    st.write("🎙️ **Linked Interviews**")
+    interviews = conn.execute("SELECT * FROM interviews WHERE application_id = ?", (app_id,)).fetchall()
+    if not interviews:
+        st.info("No interviews logged for this application.")
+    for intv in interviews:
+        with st.expander(f"Round: {intv['round']} ({intv['date']}) - Rating: {intv['rating']}/5"):
+            st.write(f"**Result:** {intv['result']}")
+            st.write(f"**Mode:** {intv['mode']} at {intv['time']}")
+            st.write(f"**Topics:** {intv['topics']}")
+            st.write(f"**Went Well:** {intv['went_well']}")
+            st.write(f"**Improvement:** {intv['improvement']}")
+            st.write(f"**Link:** {intv['meeting_link']}")
+            if st.button("Delete Interview", key=f"del_int_{intv['interview_id']}"):
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM interviews WHERE interview_id = ?", (intv['interview_id'],))
+                conn.commit()
+                conn.close()
+                st.rerun()
+
+    st.divider()
+    st.write("⏰ **Application Tasks**")
+    tasks = conn.execute("SELECT * FROM tasks WHERE application_id = ? ORDER BY deadline ASC", (app_id,)).fetchall()
+    if not tasks:
+        st.info("No tasks for this application.")
+    for t in tasks:
+        col_t, col_check, col_del = st.columns([4, 1, 1])
+        with col_t:
+            st.markdown(f"📅 {t['deadline']} — {t['task_description']}")
+        with col_check:
+            if st.checkbox("Done", value=bool(t['completed']), key=f"chk_{t['task_id']}"):
+                cursor = conn.cursor()
+                cursor.execute("UPDATE tasks SET completed = ? WHERE task_id = ?", (1, t['task_id']))
+                conn.commit()
+                conn.close()
+                st.rerun()
+        with col_del:
+            if st.button("🗑️", key=f"del_t_{t['task_id']}"):
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM tasks WHERE task_id = ?", (t['task_id'],))
+                conn.commit()
+                conn.close()
+                st.rerun()
+
+    if st.button("Close Details", key="close_det_btn"):
+        del st.session_state.view_app_id
+        st.rerun()
+
+    conn.close()
+
+def render_interviews(user_id):
+    st.header("🎙️ Interview Tracker")
+    with st.expander("➕ Log New Interview"):
+        with st.form("add_intv_form"):
+            conn = get_db_connection()
+            apps = pd.read_sql_query("SELECT application_id, company FROM applications WHERE user_id = ?", conn, params=(user_id,))
+            conn.close()
+            app_options = {f"{a['company']} ({a['application_id']})": a['application_id'] for a in apps.to_dict('records')}
+            selected_app = st.selectbox("Application", options=list(app_options.keys()), key="intv_app_select")
+            round_name = st.text_input("Interview Round (e.g. Technical 1)", key="intv_round")
+            date = st.date_input("Interview Date", datetime.now(), key="intv_date")
+            time = st.text_input("Time", key="intv_time")
+            mode = st.selectbox("Mode", ["Online", "Offline", "Hybrid"], key="intv_mode")
+            result = st.text_input("Result/Outcome", key="intv_result")
+            rating = st.slider("Personal Performance Rating", 1, 5, 3, key="intv_rating")
+            topics = st.text_area("Topics Asked (comma separated)", key="intv_topics")
+            well = st.text_area("What went well?", key="intv_well")
+            imp = st.text_area("What needs improvement?", key="intv_imp")
+            link = st.text_input("Meeting Link/Location", key="intv_link")
+            if st.form_submit_button("Save Interview", key="intv_submit"):
+                if selected_app and round_name:
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO interviews (application_id, round, date, time, mode, result, rating, topics, went_well, improvement, meeting_link)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (app_options[selected_app], round_name, date, time, mode, result, rating, topics, well, imp, link))
+                    conn.commit()
+                    conn.close()
+                    st.success("Interview logged!")
+                    st.rerun()
+                else:
+                    st.error("Application and Round are required")
+
+    st.divider()
+    conn = get_db_connection()
+    intvs_df = pd.read_sql_query('''
+        SELECT i.*, a.company
+        FROM interviews i
+        JOIN applications a ON i.application_id = a.application_id
+        WHERE a.user_id = ?
+    ''', conn, params=(user_id,))
+    conn.close()
+
+    for idx, row in intvs_df.iterrows():
+        with st.container():
+            c1, c2, c3 = st.columns([2, 1, 1])
+            with c1:
+                st.markdown(f"**{row['company']}** — {row['round']}")
+                st.markdown(f"📅 {row['date']} | Rating: {row['rating']}/5")
+            with c2:
+                st.markdown(f"Topics: {row['topics']}")
+            with c3:
+                if st.button("Delete", key=f"del_int_list_{row['interview_id']}"):
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM interviews WHERE interview_id = ?", (row['interview_id'],))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+            st.divider()
+
+def render_resumes(user_id):
+    st.header("📄 Resume Manager")
+    with st.expander("➕ Upload New Resume"):
+        with st.form("upload_resume_form"):
+            res_name = st.text_input("Resume Name (e.g. SWE_v1)")
+            uploaded_file = st.file_uploader("Choose PDF or DOCX", type=["pdf", "docx"])
+            if st.form_submit_button("Upload Resume", key="upload_res_submit"):
+                if res_name and uploaded_file:
+                    file_ext = uploaded_file.name.split('.')[-1].lower()
+                    unique_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{res_name.replace(' ', '_')}.{file_ext}"
+                    file_path = os.path.join(RESUME_FOLDER, unique_filename)
+                    with open(file_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO resumes (user_id, resume_name, file_path, file_type, upload_date)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (user_id, res_name, file_path, file_ext, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    conn.commit()
+                    conn.close()
+                    st.success("Resume uploaded successfully!")
+                    st.rerun()
+                else:
+                    st.error("Both name and file are required")
+
+    st.divider()
+    conn = get_db_connection()
+    resumes_df = pd.read_sql_query('''
+        SELECT resume_id, user_id, resume_name, file_path, file_type, upload_date
+        FROM resumes
+        WHERE user_id = ?
+    ''', conn, params=(user_id,))
+    conn.close()
+
+    if resumes_df.empty:
+        st.info("No resumes uploaded yet.")
+    else:
+        for idx, row in resumes_df.iterrows():
+            st.markdown("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            col_info, col_action = st.columns([3, 1])
+            with col_info:
+                st.markdown(f"**Resume:** {row['resume_name']}")
+                st.markdown(f"**Uploaded:** {row['upload_date'][:10] if row['upload_date'] else 'Unknown'}")
+                st.markdown(f"**Type:** {row['file_type'].upper() if row['file_type'] else 'Unknown'}")
+            with col_action:
+                if row['file_type'] == 'pdf':
+                    if os.path.exists(row['file_path']):
+                        with open(row['file_path'], "rb") as f:
+                            pdf_base64 = base64.b64encode(f.read()).decode('utf-8')
+                            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_base64}" width="700" height="1000" type="application/pdf"></iframe>'
+                            if st.button("View Resume", key=f"view_res_{row['resume_id']}"):
+                                st.markdown(pdf_display, unsafe_allow_html=True)
+                    else:
+                        st.error("File not found")
+                if os.path.exists(row['file_path']):
+                    with open(row['file_path'], "rb") as f:
+                        st.download_button("Download", data=f, file_name=row['resume_name'] + "." + row['file_type'], key=f"dl_res_{row['resume_id']}")
+                else:
+                    st.warning("File missing")
+                if st.button("🗑️ Delete", key=f"del_res_{row['resume_id']}"):
+                    if os.path.exists(row['file_path']):
+                        os.remove(row['file_path'])
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM resumes WHERE resume_id = ?", (row['resume_id'],))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+            st.markdown("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+def render_analytics(user_id):
+    st.header("📊 Performance Analytics")
+    conn = get_db_connection()
+    intvs_df = pd.read_sql_query('''
+        SELECT i.*, a.company
+        FROM interviews i
+        JOIN applications a ON i.application_id = a.application_id
+        WHERE a.user_id = ?
+    ''', conn, params=(user_id,))
+    conn.close()
+
+    if intvs_df.empty:
+        st.info("No interview data to analyze. Log some interviews first!")
+        return
+
+    intvs_df['date'] = pd.to_datetime(intvs_df['date'])
+    intvs_df['month'] = intvs_df['date'].dt.strftime('%Y-%m')
+    st.subheader("📈 Interview Performance Over Time")
+    perf_df = intvs_df.groupby('month')['rating'].mean().reset_index()
+    perf_df.columns = ['Month', 'Avg Rating']
+    fig_perf = px.line(perf_df, x='Month', y='Avg Rating', markers=True,
+                      title="Average Performance Rating by Month",
+                      labels={'Avg Rating': 'Rating (1-5)'})
+    fig_perf.update_yaxes(range=[0, 5])
+    st.plotly_chart(fig_perf, use_container_width=True, key="analytics_perf_line")
+    st.subheader("📅 Interview Volume")
+    vol_df = intvs_df.groupby('month').size().reset_index(name='Count')
+    fig_vol = px.bar(vol_df, x='month', y='Count', title="Interviews per Month")
+    st.plotly_chart(fig_vol, use_container_width=True, key="analytics_vol_bar")
+    st.subheader("🧩 Topic Distribution & Weak Areas")
+    all_topics = []
+    for t_str in intvs_df['topics'].dropna():
+        topics = [t.strip() for t in t_str.split(',')]
+        all_topics.extend(topics)
+    if all_topics:
+        topic_counts = pd.Series(all_topics).value_counts().reset_index()
+        topic_counts.columns = ['Topic', 'Count']
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("Frequency of Topics")
+            fig_topics = px.bar(topic_counts, x='Count', y='Topic', orientation='h',
+                               color='Count', color_continuous_scale='Viridis')
+            st.plotly_chart(fig_topics, use_container_width=True, key="analytics_topics_bar")
+        with c2:
+            st.write("⚠️ **Identified Weak Areas**")
+            weak_topics = []
+            for _, row in intvs_df.iterrows():
+                if row['rating'] < 3:
+                    t_list = [t.strip() for t in str(row['topics']).split(',')]
+                    weak_topics.extend(t_list)
+            weak_counts = pd.Series(weak_topics).value_counts().reset_index()
+            weak_counts.columns = ['Topic', 'Count']
+            if not weak_counts.empty:
+                st.table(weak_counts)
+            else:
+                st.write("No weak areas identified yet! Keep it up.")
+    else:
+        st.write("No topic data available.")
+
+# --- Google Calendar Integration ---
+def sync_to_google_calendar(task_description, deadline, company):
+    """
+    Authenticates with Google and adds a task to the user's calendar.
+    """
+    SCOPES = ['https://www.googleapis.com/auth/calendar.events']
+    creds = None
+
+    # The file credentials.json stores the client and secrets
+    if os.path.exists('credentials.json'):
+        try:
+            # Attempt to load existing credentials from a local file
+            if os.path.exists('token.json'):
+                from google.oauth2.credentials import Credentials
+                creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+
+            # If there are no (valid) credentials available, let the user log in.
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+                    # For Streamlit, we use local server flow which opens a browser tab
+                    creds = flow.run_local_server(port=0)
+
+                # Save the credentials for the next run
+                with open('token.json', 'w') as token:
+                    token.write(creds.to_json())
+
+            service = build('calendar', 'v3', credentials=creds)
+
+            # Prepare event details
+            start_date = deadline.strftime('%Y-%m-%dT09:00:00Z')
+            end_date = deadline.strftime('%Y-%m-%dT10:00:00Z')
+
+            event = {
+                'summary': f"Job Task: {company} - {task_description}",
+                'description': f"Deadline for {company} application task: {task_description}",
+                'start': {'dateTime': start_date, 'timeZone': 'UTC'},
+                'end': {'dateTime': end_date, 'timeZone': 'UTC'},
+            }
+
+            event = service.events().insert(calendarId='primary', body=event).execute()
+            return True, f"Event created: {event.get('htmlLink')}"
+        except Exception as e:
+            return False, str(e)
+    else:
+        return False, "credentials.json not found. Please set up Google Cloud Console."
+
+def render_reminders(user_id):
+    st.header("⏰ Deadlines & Reminders")
+
+    with st.expander("➕ Add Reminder"):
+        with st.form("add_task_form", clear_on_submit=True):
+            conn = get_db_connection()
+            apps_df = pd.read_sql_query("SELECT application_id, company FROM applications WHERE user_id = ?", conn, params=(user_id,))
+            conn.close()
+
+            if apps_df.empty:
+                st.warning("Please add an application first before setting reminders.")
+                return
+
+            app_options = {f"{a['company']} ({a['application_id']})": a['application_id'] for a in apps_df.to_dict('records')}
+            selected_app = st.selectbox("Application", options=list(app_options.keys()), key="remind_app_select")
+            task_desc = st.text_input("Task / Deadline (e.g. OA Deadline)", key="remind_desc")
+            deadline = st.date_input("Deadline Date", datetime.now(), key="remind_date")
+
+            if st.form_submit_button("Save Reminder", key="remind_submit"):
+                if selected_app and task_desc:
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("INSERT INTO tasks (application_id, task_description, deadline) VALUES (?, ?, ?)",
+                                   (app_options[selected_app], task_desc, deadline))
+                    conn.commit()
+                    conn.close()
+                    st.success("Reminder added!")
+                    st.rerun()
+                else:
+                    st.error("Application and Task description are required")
+
+    st.divider()
+
+    conn = get_db_connection()
+    tasks_df = pd.read_sql_query('''
+        SELECT t.task_id, t.task_description, t.deadline, t.completed, a.company
+        FROM tasks t
+        JOIN applications a ON t.application_id = a.application_id
+        WHERE a.user_id = ?
+    ''', conn, params=(user_id,))
+    conn.close()
+
+    if tasks_df.empty:
+        st.info("No reminders set.")
+        return
+
+    tasks_df = tasks_df.sort_values('deadline')
+
+    for idx, row in tasks_df.iterrows():
+        with st.container():
+            c1, c2, c3 = st.columns([3, 2, 1])
+            with c1:
+                st.markdown(f"**{row['company']}**: {row['task_description']}")
+            with c2:
+                st.markdown(f"📅 {row['deadline']}")
+            with c3:
+                # Use unique keys based on task_id
+                is_done = st.checkbox("Done", key=f"task_done_{row['task_id']}", value=bool(row['completed']))
+                if is_done != bool(row['completed']):
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE tasks SET completed = ? WHERE task_id = ?", (1 if is_done else 0, row['task_id']))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+
+                if st.button("🗑️", key=f"task_del_{row['task_id']}"):
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM tasks WHERE task_id = ?", (row['task_id'],))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+            st.divider()
+
+def render_settings(user_id):
+    st.header("⚙️ Settings & Data Management")
+
+    st.subheader("🗑️ Application Data")
+    st.warning("⚠️ This will permanently delete your applications, interview records, tasks, and application history. This cannot be undone.")
+    confirm_app_data = st.checkbox("I understand that this will permanently delete my application data")
+
+    if st.button("Clear My Application Data", key="clear_app_data_btn", disabled=not confirm_app_data):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT application_id FROM applications WHERE user_id = ?", (user_id,))
+        app_ids = [row['application_id'] for row in cursor.fetchall()]
+
+        if app_ids:
+            id_list = ",".join(map(str, app_ids))
+            cursor.execute(f"DELETE FROM application_history WHERE application_id IN ({id_list})")
+            cursor.execute(f"DELETE FROM interviews WHERE application_id IN ({id_list})")
+            cursor.execute(f"DELETE FROM tasks WHERE application_id IN ({id_list})")
+            cursor.execute("DELETE FROM applications WHERE user_id = ?", (user_id,))
+            conn.commit()
+            st.success("All application data cleared successfully.")
+        else:
+            st.info("No data found to clear.")
+        conn.close()
+        st.rerun()
+
+    st.divider()
+    st.subheader("📄 Resume Data")
+    st.warning("⚠️ This will permanently delete all your uploaded resumes and their physical files.")
+    confirm_res_data = st.checkbox("I understand that this will permanently delete my resumes")
+
+    if st.button("Delete My Uploaded Resumes", key="clear_res_data_btn", disabled=not confirm_res_data):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT resume_id, file_path FROM resumes WHERE user_id = ?", (user_id,))
+        resumes = cursor.fetchall()
+
+        for res in resumes:
+            if os.path.exists(res['file_path']):
+                os.remove(res['file_path'])
+
+        cursor.execute("DELETE FROM resumes WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        st.success("All resume data and files deleted successfully.")
+        st.rerun()
+
+    st.divider()
+    st.subheader("🛠️ Developer Options")
+    if st.button("Restore Demo Data", key="restore_demo_btn"):
+        import seed_data
+        seed_data.seed_data()
+        st.success("Demo data restored successfully!")
+        st.rerun()
+
+    st.divider()
+    st.subheader("👤 Account Management")
+    st.warning("⚠️ Deleting your account is permanent. All your applications, resumes, and settings will be erased forever.")
+    confirm_acc_del = st.checkbox("I understand and I want to delete my account permanently")
+
+    if st.button("Delete My Account", key="delete_account_btn", disabled=not confirm_acc_del):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get all data associated with the user for cleanup
+        cursor.execute("SELECT application_id FROM applications WHERE user_id = ?", (user_id,))
+        app_ids = [row['application_id'] for row in cursor.fetchall()]
+
+        cursor.execute("SELECT resume_id, file_path FROM resumes WHERE user_id = ?", (user_id,))
+        resumes = cursor.fetchall()
+
+        # 1. Delete physical resume files
+        for res in resumes:
+            if os.path.exists(res['file_path']):
+                try:
+                    os.remove(res['file_path'])
+                except Exception as e:
+                    st.error(f"Could not delete file {res['file_path']}: {e}")
+
+        # 2. Delete application-related data (Cascading)
+        if app_ids:
+            id_list = ",".join(map(str, app_ids))
+            cursor.execute(f"DELETE FROM application_history WHERE application_id IN ({id_list})")
+            cursor.execute(f"DELETE FROM interviews WHERE application_id IN ({id_list})")
+            cursor.execute(f"DELETE FROM tasks WHERE application_id IN ({id_list})")
+
+        # 3. Delete user-specific records
+        cursor.execute("DELETE FROM applications WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM resumes WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+
+        conn.commit()
+        conn.close()
+
+        # Clear session and redirect to login
+        st.session_state.authenticated = False
+        st.session_state.user_id = None
+        st.session_state.username = None
+        st.success("Account deleted successfully. You have been logged out.")
+        st.rerun()
+
+
+# --- entry point ---
+if st.session_state.authenticated:
+    main_app()
+else:
+    login_page()
+
+if __name__ == "__main__":
+    pass
