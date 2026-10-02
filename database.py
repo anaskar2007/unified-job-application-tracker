@@ -9,6 +9,7 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -32,21 +33,35 @@ def init_db():
             file_path TEXT,
             upload_date DATETIME DEFAULT CURRENT_TIMESTAMP,
             file_type TEXT,
+            ats_text TEXT,
+            version INTEGER DEFAULT 1,
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
     ''')
 
     # Migration: Ensure upload_date column exists
     try:
-        cursor.execute("ALTER TABLE resumes ADD COLUMN upload_date DATETIME DEFAULT CURRENT_TIMESTAMP")
+        cursor.execute(
+            "ALTER TABLE resumes ADD COLUMN upload_date DATETIME DEFAULT CURRENT_TIMESTAMP"
+        )
     except sqlite3.OperationalError:
-        pass # Column already exists
+        pass  # Column already exists
 
     # Migration: Ensure file_type column exists
     try:
-        cursor.execute("ALTER TABLE resumes ADD COLUMN file_type TEXT")
+        cursor.execute(
+            "ALTER TABLE resumes ADD COLUMN file_type TEXT"
+        )
     except sqlite3.OperationalError:
-        pass # Column already exists
+        pass  # Column already exists
+
+    # Migration: Ensure ats_text column exists
+    try:
+        cursor.execute(
+            "ALTER TABLE resumes ADD COLUMN ats_text TEXT"
+        )
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # Applications table
     cursor.execute('''
@@ -64,6 +79,8 @@ def init_db():
             overall_status TEXT,
             resume_id INTEGER,
             notes TEXT,
+            job_description TEXT,
+            match_score INTEGER,
             FOREIGN KEY (user_id) REFERENCES users (user_id),
             FOREIGN KEY (resume_id) REFERENCES resumes (resume_id)
         )
@@ -71,9 +88,25 @@ def init_db():
 
     # Migration: Ensure overall_status column exists
     try:
-        cursor.execute("ALTER TABLE applications ADD COLUMN overall_status TEXT")
+        cursor.execute(
+            "ALTER TABLE applications ADD COLUMN job_description TEXT"
+        )
     except sqlite3.OperationalError:
-        pass # Column already exists
+        pass  # Column already exists
+
+    try:
+        cursor.execute(
+            "ALTER TABLE applications ADD COLUMN match_score INTEGER"
+        )
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute(
+            "ALTER TABLE resumes ADD COLUMN version INTEGER DEFAULT 1"
+        )
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # Application History table
     cursor.execute('''
@@ -84,6 +117,20 @@ def init_db():
             changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             notes TEXT,
             FOREIGN KEY (application_id) REFERENCES applications (application_id)
+        )
+    ''')
+
+    # Match Analyses table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS match_analyses (
+            analysis_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            application_id INTEGER NOT NULL,
+            resume_id INTEGER NOT NULL,
+            score INTEGER,
+            analysis_json TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (application_id) REFERENCES applications (application_id),
+            FOREIGN KEY (resume_id) REFERENCES resumes (resume_id)
         )
     ''')
 
@@ -106,26 +153,35 @@ def init_db():
         )
     ''')
 
-    # Tasks/Reminders table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            task_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            application_id INTEGER NOT NULL,
-            task_description TEXT NOT NULL,
-            deadline DATE,
-            completed BOOLEAN DEFAULT 0,
-            FOREIGN KEY (application_id) REFERENCES applications (application_id)
-        )
-    ''')
+    # Migration: Ensure google_event_id column exists in interviews
+    try:
+        cursor.execute("ALTER TABLE interviews ADD COLUMN google_event_id TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Migration: Ensure google_event_id column exists in tasks
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN google_event_id TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     conn.commit()
     conn.close()
 
+
 def hash_password(password):
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    return bcrypt.hashpw(
+        password.encode('utf-8'),
+        bcrypt.gensalt()
+    ).decode('utf-8')
+
 
 def check_password(password, hashed):
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    return bcrypt.checkpw(
+        password.encode('utf-8'),
+        hashed.encode('utf-8')
+    )
+
 
 if __name__ == "__main__":
     init_db()

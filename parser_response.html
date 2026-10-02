@@ -1,0 +1,542 @@
+    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>OpenCATS - Candidates</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="icon" href="images/favicon.ico" type="image/x-icon" />
+<link rel="shortcut icon" href="images/favicon.ico" type="image/x-icon" />
+<link rel="alternate" type="application/rss+xml" title="RSS" href="index.php?m=rss" />
+<script type="text/javascript" src="js/lib.js?v=1790246792"></script>
+<script type="text/javascript" src="js/quickAction.js?v=1790246792"></script>
+<script type="text/javascript" src="js/calendarDateInput.js?v=1790246792"></script>
+<script type="text/javascript" src="js/submodal/subModal.js?v=1790246792"></script>
+<script type="text/javascript" src="js/jquery-1.3.2.min.js?v=1790246792"></script>
+<script type="text/javascript">CATSIndexName = "index.php";</script>
+<script type="text/javascript">CATSCsrfToken = "cc1ac714cde1a5e1df3189a90cb9161bd8b91f418594600a6df515df91307c37";</script>
+<script type="text/javascript">
+function catsInjectCSRFToken()
+{
+    if (typeof CATSCsrfToken == "undefined" || CATSCsrfToken === null || CATSCsrfToken === "")
+    {
+        return;
+    }
+    var forms = document.getElementsByTagName("form");
+    for (var i = 0; i < forms.length; i++)
+    {
+        var form = forms[i];
+        var method = form.method;
+        if (!method || method.toLowerCase() != "post")
+        {
+            continue;
+        }
+        var action = form.action;
+        if (action && (action.indexOf("http://") == 0 || action.indexOf("https://") == 0))
+        {
+            var parser = document.createElement("a");
+            parser.href = action;
+            if (parser.host && parser.host.toLowerCase() != window.location.host.toLowerCase())
+            {
+                continue;
+            }
+        }
+        var hasToken = false;
+        if (form.elements)
+        {
+            for (var j = 0; j < form.elements.length; j++)
+            {
+                if (form.elements[j].name == "csrfToken")
+                {
+                    hasToken = true;
+                    break;
+                }
+            }
+        }
+        if (hasToken)
+        {
+            continue;
+        }
+        var input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "csrfToken";
+        input.value = CATSCsrfToken;
+        form.appendChild(input);
+    }
+}
+var catsOldOnload = window.onload;
+window.onload = function()
+{
+    if (catsOldOnload)
+    {
+        catsOldOnload();
+    }
+    catsInjectCSRFToken();
+};
+</script>
+<script type="text/javascript" src="modules/candidates/validator.js?v=1790246792"></script>
+<script type="text/javascript" src="js/addressParser.js?v=1790246792"></script>
+<script type="text/javascript" src="js/listEditor.js?v=1790246792"></script>
+<script type="text/javascript" src="js/candidate.js?v=1790246792"></script>
+<script type="text/javascript" src="js/candidateParser.js?v=1790246792"></script>
+<style type="text/css" media="all">@import "main.css?v=1790246792";</style>
+<!--[if IE]><link rel="stylesheet" type="text/css" href="ie.css?v=1790246792" /><![endif]-->
+<![if !IE]><link rel="stylesheet" type="text/css" href="not-ie.css?v=1790246792" /><![endif]>
+</head>
+
+<body style="background: #fff">
+<div class="ajaxSearchResults" id="singleQuickActionMenu" align="left" style="width:200px;" onclick="toggleVisibility()"></div><div id="popupMask">&nbsp;</div><div id="popupContainer"><div id="popupInner"><div id="popupTitleBar"><div id="popupTitle"></div><div id="popupControls"><img src="js/submodal/close.gif" alt="X" width="16" height="16" onclick="hidePopWin(false);" /></div></div><div style="width: 100%; height: 100%; background-color: transparent; display: none;" id="popupFrameDiv"></div><iframe src="js/submodal/loading.html" style="width: 100%; height: 100%; background-color: transparent; display: none;" scrolling="auto" frameborder="0" allowtransparency="true" id="popupFrameIFrame" width="100%" height="100%"></iframe></div></div>    <div id="headerBlock">
+<table cellspacing="0" cellpadding="0" style="margin: 0px; padding: 0px; float: left;">
+<tr>
+<td rowspan="2"><img src="images/applicationLogo.jpg" border="0" alt="CATS Applicant Tracking System" /></td>
+</tr>
+</table>
+<div id="topRight">
+<div style="padding-bottom: 8px;"><a href="http://www.opencats.org" target="_blank"><img src="images/tabs/small_upgrade.jpg" border="0" /> OpenCATS.org</a>&nbsp;&nbsp;&nbsp;&nbsp;
+<form id="logoutForm" name="logoutForm" method="post" action="index.php?m=logout" style="display: inline; padding: 0; margin: 0; border: 0;"><input type="hidden" name="csrfToken" value="cc1ac714cde1a5e1df3189a90cb9161bd8b91f418594600a6df515df91307c37" /><button type="submit" class="linkButton"><img src="images/tabs/small_logout.jpg" border="0" /> Logout</button>
+</form>
+</div>
+<span>CATS Administrator&nbsp;&lt;admin&gt;&nbsp;(example.com)</span>
+&nbsp;<span style="font-weight:bold;">Administrator</span>
+<br /></div>
+</div>
+    <div id="header">
+<ul id="primary">
+<li><a class="inactive" href="index.php?m=home">Dashboard</a></li>
+<li><a class="inactive" href="index.php?m=activity">Activities</a></li>
+<li><a class="inactive" href="index.php?m=joborders">Job Orders</a></li>
+<li><a class="active" href="index.php?m=candidates">Candidates</a>
+<ul id="secondary"><li><a href="index.php?m=candidates&amp;a=add" style="color:#cccccc;">Add Candidate</a></li>
+<li><a href="index.php?m=candidates&amp;a=search" style="">Search Candidates</a></li>
+</ul></li><li><a class="inactive" href="index.php?m=companies">Companies</a></li>
+<li><a class="inactive" href="index.php?m=contacts">Contacts</a></li>
+<li><a class="inactive" href="index.php?m=lists">Lists</a></li>
+<li><a class="inactive" href="index.php?m=calendar">Calendar</a></li>
+<li><a class="inactive" href="index.php?m=reports">Reports</a></li>
+<li><a class="inactive" href="index.php?m=settings">Settings</a></li>
+</ul>
+</div>
+
+    <div id="main">
+        <div id="MRUPanel">
+<div id="MRUBlock">
+<span class="MRUTitle">Recent:&nbsp;</span>&nbsp;<a href="index.php?m=candidates&amp;a=show&amp;candidateID=2" style="text-decoration: none;">John Smith</a>&nbsp;<span style="color: orange;">|</span>&nbsp;<a href="index.php?m=joborders&amp;a=show&amp;jobOrderID=1" style="text-decoration: none;">Software Engineering</a>&nbsp;<span style="color: orange;">|</span>&nbsp;<a href="index.php?m=candidates&amp;a=show&amp;candidateID=1" style="text-decoration: none;">Soham Sarkar</a>
+</div>
+
+<form id="quickSearchForm" action="index.php" method="get" onsubmit="return checkQuickSearchForm(document.quickSearchForm);">
+<div id="quickSearchBlock">
+<input type="hidden" name="m" value="home" />
+<input type="hidden" name="a" value="quickSearch" />
+<span class="quickSearchLabel" id="quickSearchLabel">Quick Search:</span>&nbsp;
+<input name="quickSearchFor" id="quickSearchFor" class="quickSearchBox" value="" />&nbsp;
+<input type="submit" name="quickSearch" class="button" value="Go" />&nbsp;
+</div>
+</form>
+</div>
+
+        <div id="contents">
+
+            <table>
+                <tr>
+                    <td width="3%">
+                        <img src="images/candidate.gif" width="24" height="24" alt="Candidates" style="border: none; margin-top: 3px;" />&nbsp;
+                    </td>
+                    <td><h2>Candidates: Add Candidate</h2></td>
+                </tr>
+            </table>
+
+
+<script type="text/javascript">
+    window.CATSUserDateFormat = 'DD-MM-YY';
+</script>
+
+            <p class="note">Basic Information</p>
+
+            <table style="font-weight:bold; border: 1px solid #000; background-color: #ffed1a; padding:5px; display:none; margin-bottom:7px;" width="100%" id="candidateAlreadyInSystemTable">
+                <tr>
+                    <td class="tdVertical">
+                        This profile may already be in the system.&nbsp;&nbsp;Possible duplicate candidate profile:&nbsp;&nbsp;
+                        <a href="javascript:void(0);" onclick="window.open('index.php?m=candidates&amp;a=show&amp;candidateID='+candidateIsAlreadyInSystemID);">
+                            <img src="images/new_window.gif" border="0" />
+                            <img src="images/candidate_small.gif" border="0" />
+                            <span id="candidateAlreadyInSystemName"></span>
+                        </a>
+                    </td>
+                </tr>
+            </table>
+
+                                        
+            <form name="addCandidateForm" id="addCandidateForm" enctype="multipart/form-data" action="index.php?m=candidates&amp;a=add" method="post" onsubmit="return (checkAddForm(document.addCandidateForm) && onSubmitEmailInSystem() && onSubmitPhoneInSystem());" autocomplete="off" enctype="multipart/form-data">
+                                <input type="hidden" name="postback" id="postback" value="postback" />
+
+                <table class="editTable">
+                                        <tr>
+                        <td class="tdVertical" colspan="2">
+                            <img src="images/parser/manual.gif" border="0" />
+                        </td>
+                        <td class="tdVertical">
+                            <table cellpadding="0" cellspacing="0" border="0" width="100%">
+                                <tr>
+                                    <td align="left"><img src="images/parser/import.gif" border="0" /></td>
+                                    <td align="right">
+                                        &nbsp;
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                                        <tr>
+                        <td class="tdVertical">
+                            <label id="firstNameLabel" for="firstName">First Name:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="1" name="firstName" id="firstName" class="inputbox" style="width: 150px" value="Aarush" />&nbsp;*
+                        </td>
+
+                        <td rowspan="12" align="center" valign="top">
+                                                            <input type="hidden" name="loadDocument" id="loadDocument" value="" />
+                                <input type="hidden" name="parseDocument" id="parseDocument" value="" />
+                                <input type="hidden" name="documentTempFile" id="documentTempFile" value="resume.pdf" />
+                                <table cellpadding="0" cellspacing="0" border="0">
+                                    <tr>
+                                        <td valign="middle" align="right" colspan="2">
+                                            <img src="images/parser/arrow.gif" border="0" />
+                                            <input type="hidden" name="MAX_FILE_SIZE" VALUE="10000000" />
+                                            <input type="file" id="documentFile" name="documentFile" onchange="documentFileChange();" size="40" />
+                                            <input type="button" id="documentLoad" value="Upload" onclick="loadDocumentFileContents();" disabled />
+                                            &nbsp;
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td valign="top" align="left" colspan="2">
+                                                                                        <div id="showAttachmentDetails" style="height: 20px; background-color: #e0e0e0; width: 500px; margin: 1px 0 5px 0; padding: 0 3px 0 5px;">
+                                                <table cellpadding="0" cellspacing="0" border="0" width="100%">
+                                                    <tr>
+                                                        <td align="left" valign="top" nowrap="nowrap" style="font-size: 11px;">
+                                                            <img src="images/parser/attachment.gif" border="0" style="padding-top: 3px;" />
+                                                            Attachment: <span style="font-weight: bold;">resume.pdf</span>
+                                                        </td>
+                                                        <td align="right" valign="top" nowrap="nowrap" style="font-size: 11px;">
+                                                            <a href="javascript:void(0);" onclick="removeDocumentFile();">(remove)</a>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                            </div>
+                                                                                        <textarea class="inputbox" tabindex="90" name="documentText" id="documentText" rows="5" cols="40" onmousemove="documentCheck();" onchange="documentCheck();" onmousedown="documentCheck();" onkeypress="documentCheck();" style="width: 500px; height: 210px; padding: 3px;">                                  AARUSH NASKAR
+                Email: naskaraarush@gmail.com | Phone: +91 7604044203
+
+
+
+EDUCATION
+Degree              Institution       Branch           CGPA / %        Year
+
+B.Tech              SRM Institute     CSE â Cloud      9.73 CGPA       2025 â Present
+                    of Science and    Computing
+                    Technology
+                    (SRM IST),
+                    Ramapuram
+
+Class XII           Delhi Public      Science          85.8%           2025
+(CBSE)              School, Joka      stream
+                                      (PCM)
+
+Class X             Delhi Public        -              96.4%           2023
+(CBSE)              School, Joka
+
+
+
+PROJECTS
+Project Title           Description             Technologies       Status
+
+Library                 Developed a library     Python, MySQL      Completed
+Management              management
+System                  system with
+                        database
+                        connectivity for
+                        managing books
+                        and user records.
+
+Multi-Hop               Designing and           Python, Socket     Currently Working
+Anonymous               implementing an         Programming,
+Network (Tor-like       application-layer       Networking,
+System)                 anonymity network       Threading,
+                        using Python            Cryptographic
+                        sockets with multi-     basics, TCP/IP
+                        hop routing,            Encryption,
+                        threading, dynamic      Layered
+                        path selection, and     Encryption,
+                                                Machine Learning
+                  planned onion style
+                  layered encryption.
+
+
+
+TECHNICAL SKILLS
+Category                                Skills
+
+Programming Languages                   Python, C, C++
+
+Database                                MySQL
+
+Web Basics                              HTML
+</textarea>
+                                            <br/>
+                                            <div style="color: #666666; text-align: center;">
+                                            (<b>hint:</b> you may also paste the resume contents)
+                                            <br /><br />
+                                            Need to upload multiple resumes? <a href="index.php?m=import&a=massImport">Click here!</a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </table>
+                                                    </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="middleNameLabel" for="middleName">Middle Name:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="2" name="middleName" id="middleName" class="inputbox" style="width: 150px" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="lastNameLabel" for="lastName">Last Name:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="2" name="lastName" id="lastName" class="inputbox" style="width: 150px" value="Test" />&nbsp;*
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="emailLabel" for="email1">E-Mail:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="3" name="email1" id="email1" class="inputbox" style="width: 150px" value="" onchange="checkEmailAlreadyInSystem(this.value);" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="email2Label" for="email2">2nd E-Mail:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="4" name="email2" id="email2" class="inputbox" style="width: 150px" value="" onchange="checkEmailAlreadyInSystem(this.value);" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="webSiteLabel" for="webSite">Web Site:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="5" name="webSite" id="webSite" class="inputbox" style="width: 150px" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="phoneHomeLabel" for="phoneHome">Home Phone:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="6" name="phoneHome" id="phoneHome" class="inputbox" style="width: 150px;" value="" onchange="checkPhoneAlreadyInSystem(this.value);"  />
+                                                            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;                                <img id="transfer" src="images/parser/transfer.gif" style="cursor: pointer;" border="0" alt="Import Resume" onclick="parseDocumentFileContents();" />
+                                                    </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="phoneCellLabel" for="phoneCell">Cell Phone:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="7" name="phoneCell" id="phoneCell" class="inputbox" style="width: 150px;" value="" onchange="checkPhoneAlreadyInSystem(this.value);" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="phoneWorkLabel" for="phoneWork">Work Phone:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="8" name="phoneWork" id="phoneWork" class="inputbox" style="width: 150px" value="" onchange="checkPhoneAlreadyInSystem(this.value);" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="addressLabel" for="address">Address:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="9" name="address" id="address" class="inputbox" style="width: 150px" value="" />
+                            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<img src="images/indicator2.gif" id="addressParserIndicator" alt="" style="visibility: hidden; margin-left: 10px;" height="16" width="16" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="address2Label" for="address2">Address 2:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="10" name="address2" id="address2" class="inputbox" style="width: 150px" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="cityLabel" for="city">City:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="11" name="city" id="city" class="inputbox" style="width: 150px" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="stateLabel" for="state">State:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="12" name="state" id="state" class="inputbox" style="width: 150px" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="zipLabel" for="zip">Postal Code:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="13" name="zip" id="zip" class="inputbox" style="width: 150px" value="" />&nbsp;
+                            <input type="button" tabindex="92" onclick="CityState_populate('zip', 'ajaxIndicator');" value="Lookup" />
+                            <img src="images/indicator2.gif" alt="AJAX" id="ajaxIndicator" style="vertical-align: middle; visibility: hidden; margin-left: 5px;" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="countryLabel" for="country">Country:</label>
+                        </td>
+                        <td class="tdData">
+                            <select id="country" name="country" class="inputbox" style="width: 150px;"><option value=""></option><option value="AE">United Arab Emirates</option><option value="AR">Argentina</option><option value="AT">Austria</option><option value="AU">Australia</option><option value="BE">Belgium</option><option value="BG">Bulgaria</option><option value="BR">Brazil</option><option value="CA">Canada</option><option value="CH">Switzerland</option><option value="CL">Chile</option><option value="CN">China</option><option value="CO">Colombia</option><option value="CZ">Czech Republic</option><option value="DE">Germany</option><option value="DK">Denmark</option><option value="EG">Egypt</option><option value="ES">Spain</option><option value="FI">Finland</option><option value="FR">France</option><option value="GB">United Kingdom</option><option value="GR">Greece</option><option value="HK">Hong Kong</option><option value="HU">Hungary</option><option value="IE">Ireland</option><option value="IL">Israel</option><option value="IN">India</option><option value="IT">Italy</option><option value="JP">Japan</option><option value="KR">South Korea</option><option value="MA">Morocco</option><option value="MX">Mexico</option><option value="NL">Netherlands</option><option value="NO">Norway</option><option value="NZ">New Zealand</option><option value="PE">Peru</option><option value="PL">Poland</option><option value="PT">Portugal</option><option value="RO">Romania</option><option value="SA">Saudi Arabia</option><option value="SE">Sweden</option><option value="SG">Singapore</option><option value="SK">Slovakia</option><option value="TN">Tunisia</option><option value="TR">Turkey</option><option value="TW">Taiwan</option><option value="US">United States</option><option value="ZA">South Africa</option></select>                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="stateLabel" for="state">Best Time to Call:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="13" name="bestTimeToCall" id="bestTimeToCall" class="inputbox" style="width: 150px" value="" />
+                        </td>
+                    </tr>
+
+                                    </table>
+
+                                <br />
+                
+                
+                <p class="note" style="margin-top: 5px;">Other</p>
+                <table class="editTable">
+
+                    
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="canRelocateLabel" for="canRelocate">Can Relocate:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="checkbox" tabindex="15" id="canRelocate" name="canRelocate" value="1" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="dateAvailableLabel" for="dateAvailable">Date Available:</label>
+                        </td>
+                        <td class="tdData">
+                            <script type="text/javascript">DateInput('dateAvailable', false, (typeof window.CATSUserDateFormat !== 'undefined' ? window.CATSUserDateFormat : 'MM-DD-YY'), '', 16);</script>
+
+                                                                                </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="currentEmployerLabel" for="currentEmployer">Current Employer:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="19" name="currentEmployer" id="currentEmployer" class="inputbox" style="width: 150px" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="currentPayLabel" for="currentEmployer">Current Pay:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="20" name="currentPay" id="currentPay" class="inputbox" style="width: 150px" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="desiredPayLabel" for="currentEmployer">Desired Pay:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" tabindex="21" name="desiredPay" id="desiredPay" class="inputbox" style="width: 150px" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="sourceLabel" for="sourceSelect">Source:</label>
+                        </td>
+                        <td class="tdData">
+                            <select id="sourceSelect" tabindex="22" name="source" class="inputbox" style="width: 150px;" onchange="if (this.value == 'edit') { listEditor('Sources', 'sourceSelect', 'sourceCSV', false); this.value = '(none)'; } if (this.value == 'nullline') { this.value = '(none)'; }">
+                                <option value="edit">(Edit Sources)</option>
+                                <option value="nullline">-------------------------------</option>
+                                    <option value="(none)" >(None)</option>
+                                                                            <option value="" selected="selected"></option>
+                                                                                                </select>
+                            <input type="hidden" id="sourceCSV" name="sourceCSV" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="keySkillsLabel" for="keySkills">Key Skills:</label>
+                        </td>
+                        <td class="tdData">
+                            <input type="text" class="inputbox" tabindex="23" name="keySkills" id="keySkills" style="width: 400px;" value="" />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="tdVertical">
+                            <label id="notesLabel" for="notes">Misc. Notes:</label>
+                        </td>
+                        <td class="tdData">
+                            <textarea class="inputbox" tabindex="24" name="notes" id="notes" rows="5" cols="40" style="width: 400px;"></textarea>
+                        </td>
+                    </tr>
+                </table>
+
+                <input type="submit" tabindex="25" class="button" value="Add Candidate" />&nbsp;
+                <input type="reset"  tabindex="26" class="button" value="Reset" />&nbsp;
+                                    <input type="button" tabindex="27" class="button" value="Back to Candidates" onclick="javascript:goToURL('index.php?m=candidates');" />
+                            </form>
+
+<script type="text/javascript">
+    document.addCandidateForm.firstName.focus();
+            checkEmailAlreadyInSystem(urlDecode(""));
+                checkEmailAlreadyInSystem(urlDecode(""));
+                checkEmailAlreadyInSystem(urlDecode(""));
+                checkEmailAlreadyInSystem(urlDecode(""));
+                checkEmailAlreadyInSystem(urlDecode(""));
+    </script>
+
+        </div>
+    </div>
+<div class="footerBlock">
+<p id="footerText">OpenCATS Version 0.10.0. Powered by <a href="http://www.opencats.org/"><strong>OpenCATS</strong></a>.</p>
+<span id="footerResponse">Server Response Time: 0.38 seconds.</span><br /><span id="footerCopyright"></span>
+</div>
+</body>
+</html>

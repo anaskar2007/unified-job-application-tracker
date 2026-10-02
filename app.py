@@ -1,12 +1,21 @@
+import json
+import mysql.connector
+from opencats_connector import send_resume_to_opencats
 import streamlit as st
+from ui_components import render_card, render_badge, render_kpi_card, render_section_header
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from database import get_db_connection, check_password, hash_password
+from ai.jd_resume_analyzer import analyze_resume
+from ai.jd_matcher import extract_jd_requirements, calculate_match_score, generate_explainable_report
 import bcrypt
 import os
 import base64
+from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
 
 
 # --- Page Config ---
@@ -17,24 +26,102 @@ RESUME_FOLDER = "resumes"
 if not os.path.exists(RESUME_FOLDER):
     os.makedirs(RESUME_FOLDER)
 
-# --- CSS for Badges ---
+# --- CSS for Modern SaaS UI ---
 st.markdown("""
 <style>
-    .status-badge {
-        padding: 4px 8px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: bold;
-        color: white;
-        display: inline-block;
+    :root {
+        --primary: #3b82f6;
+        --primary-hover: #2563eb;
+        --bg-main: #000000;
+        --bg-card: #111111;
+        --text-main: #ffffff;
+        --text-muted: #a1a1aa;
+        --border-color: #27272a;
+        --sidebar-bg: #0a0a0a;
+        --radius-lg: 12px;
+        --radius-md: 8px;
+        --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.5);
     }
-    .badge-active { background-color: #28a745; }
-    .badge-interview { background-color: #007bff; }
-    .badge-oa { background-color: #ffc107; color: black; }
-    .badge-offer { background-color: #6f42c1; }
-    .badge-rejected { background-color: #dc3545; }
-    .badge-saved { background-color: #6c757d; }
-    .badge-other { background-color: #17a2b8; }
+
+    /* Main container styling */
+    .stApp {
+        background-color: var(--bg-main) !important;
+        color: var(--text-main) !important;
+    }
+
+    /* Force ALL text colors to white/muted */
+    .stApp [data-testid="stMarkdownContainer"] p,
+    .stApp [data-testid="stMarkdownContainer"] span,
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+    .stApp label, .stApp .stText, .stApp .stMetric {
+        color: var(--text-main) !important;
+    }
+
+    .stApp [data-testid="stMarkdownContainer"] .small,
+    .stApp .st-muted {
+        color: var(--text-muted) !important;
+    }
+
+    /* Input field styling - Force black bg and white text */
+    .stTextInput input, .stTextArea textarea, .stDateInput input,
+    .stTimeInput input, .stSelectbox div[data-baseweb="select"] {
+        background-color: #1a1a1a !important;
+        color: white !important;
+        border: 1px solid var(--border-color) !important;
+    }
+
+    /* Card styling */
+    .st-card, .kpi-card {
+        background-color: var(--bg-card) !important;
+        padding: 1.5rem;
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border-color) !important;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 1rem;
+        color: var(--text-main) !important;
+    }
+
+    /* Sidebar Navigation Styling */
+    [data-testid="stSidebar"] {
+        background-color: var(--sidebar-bg) !important;
+        border-right: 1px solid var(--border-color) !important;
+    }
+
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label {
+        color: var(--text-main) !important;
+    }
+
+    /* Style the radio buttons to look like a nav menu */
+    .stRadio div[role="radiogroup"] label {
+        padding: 0.5rem 1rem;
+        border-radius: var(--radius-md);
+        transition: all 0.2s;
+        cursor: pointer;
+        color: var(--text-main) !important;
+    }
+
+    .stRadio div[role="radiogroup"] label:hover {
+        background-color: #1a1a1a;
+    }
+
+    /* Analysis Result Cards */
+    .analysis-card {
+        background-color: var(--bg-card) !important;
+        color: var(--text-main) !important;
+        padding: 1rem;
+        border-radius: var(--radius-lg);
+        border-left: 5px solid var(--primary) !important;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 1rem;
+    }
+    .analysis-card-header {
+        font-weight: 700;
+        color: var(--text-main) !important;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -120,7 +207,7 @@ def main_app():
         logout()
 
     nav = st.sidebar.radio("Navigation",
-        ["Dashboard", "Applications", "Interviews", "Resumes", "Analytics", "Reminders", "Settings"],
+        ["Dashboard", "Applications", "Interviews", "Resumes", "Analytics", "Reminders", "AI Resume Analyzer", "Settings"],
         key="main_nav")
 
     user_id = st.session_state.user_id
@@ -139,10 +226,13 @@ def main_app():
         render_reminders(user_id)
     elif nav == "Settings":
         render_settings(user_id)
+    elif nav == "AI Resume Analyzer":
+        render_ai_analyzer(user_id)
+
 
 # --- Components ---
 def render_dashboard(user_id):
-    st.header("🚀 Career Dashboard")
+    render_section_header("🚀 Career Dashboard", "Overview of your application pipeline and progress")
 
     conn = get_db_connection()
     apps_df = pd.read_sql_query("SELECT * FROM applications WHERE user_id = ?", conn, params=(user_id,))
@@ -159,33 +249,37 @@ def render_dashboard(user_id):
     rejected = len(apps_df[apps_df['overall_status'] == 'Rejected'])
     oa_count = len(apps_df[apps_df['current_stage'].str.contains('Assessment|OA|Challenge', case=False, na=False)])
 
-    col1.metric("Total Apps", total)
-    col2.metric("Active", active)
-    col3.metric("OA/Tests", oa_count)
-    col4.metric("Offers", offers)
-    col5.metric("Rejections", rejected)
+    col1.markdown(render_kpi_card("Total Apps", total), unsafe_allow_html=True)
+    col2.markdown(render_kpi_card("Active", active), unsafe_allow_html=True)
+    col3.markdown(render_kpi_card("OA/Tests", oa_count), unsafe_allow_html=True)
+    col4.markdown(render_kpi_card("Offers", offers), unsafe_allow_html=True)
+    col5.markdown(render_kpi_card("Rejections", rejected), unsafe_allow_html=True)
 
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
+        st.markdown('<div class="st-card">', unsafe_allow_html=True)
         st.subheader("Applications by Status")
         status_counts = apps_df['overall_status'].value_counts().reset_index()
         status_counts.columns = ['Status', 'Count']
         fig = px.pie(status_counts, values='Count', names='Status', hole=0.4,
                     color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig, use_container_width=True, key="dashboard_status_pie")
+        st.markdown('</div>', unsafe_allow_html=True)
     with c2:
+        st.markdown('<div class="st-card">', unsafe_allow_html=True)
         st.subheader("Application Timeline")
         apps_df['application_date'] = pd.to_datetime(apps_df['application_date'])
         timeline_df = apps_df.set_index('application_date').resample('M').size().reset_index(name='Count')
         fig = px.line(timeline_df, x='application_date', y='Count', markers=True)
         fig.update_xaxes(dtick="M1", tickformat="%b %Y")
         st.plotly_chart(fig, use_container_width=True, key="dashboard_timeline_line")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 def render_applications(user_id):
-    st.header("📋 Application Management")
+    st.markdown("## 📋 Application Management")
 
-    with st.expander("➕ Add New Application"):
+    with st.expander("➕ Add New Application", expanded=False):
         with st.form("add_app_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             company = c1.text_input("Company Name*", key="add_app_company")
@@ -197,6 +291,7 @@ def render_applications(user_id):
             date = c5.date_input("Application Date", datetime.now(), key="add_app_date")
             url = c6.text_input("Job URL", key="add_app_url")
             salary = st.text_input("Salary/Stipend (Optional)", key="add_app_salary")
+            jd_text = st.text_area("Job Description", placeholder="Paste the complete JD here...", key="add_app_jd")
 
             conn = get_db_connection()
             resumes_df = pd.read_sql_query("SELECT resume_id, resume_name FROM resumes WHERE user_id = ?", conn, params=(user_id,))
@@ -221,9 +316,9 @@ def render_applications(user_id):
                         cursor = conn.cursor()
                         res_id = resume_options.get(selected_resume_name)
                         cursor.execute('''
-                            INSERT INTO applications (user_id, company, role, location, job_type, application_date, job_url, salary, current_stage, overall_status, resume_id, notes)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', (user_id, company, role, loc, jtype, date, url, salary, final_stage, overall_status, res_id, notes))
+                            INSERT INTO applications (user_id, company, role, location, job_type, application_date, job_url, salary, current_stage, overall_status, resume_id, notes, job_description)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (user_id, company, role, loc, jtype, date, url, salary, final_stage, overall_status, res_id, notes, jd_text))
                         app_id = cursor.lastrowid
                         cursor.execute("INSERT INTO application_history (application_id, stage, notes) VALUES (?, ?, ?)",
                                        (app_id, final_stage, "Application created"))
@@ -235,13 +330,15 @@ def render_applications(user_id):
                 else:
                     st.error("Company and Role are required")
 
-    st.divider()
-    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
-    search_q = c1.text_input("🔍 Search Company or Role", key="app_search_q")
-    filter_stage = c2.selectbox("Filter by Stage", ["All"] + ["Offer", "Rejected", "Applied", "Online Assessment"], key="app_filter_stage")
-    filter_status = c3.selectbox("Filter by Status", ["All", "Active", "Offer", "Rejected", "Withdrawn"], key="app_filter_status")
-    filter_type = c4.selectbox("Filter by Type", ["All", "Internship", "Full-time", "Part-time", "Other"], key="app_filter_type")
-    sort_order = st.selectbox("Sort by", ["Newest First", "Oldest First", "Company Name"], key="app_sort")
+    st.markdown("---")
+
+    # --- Filters ---
+    f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns([3, 1, 1, 1, 1])
+    search_q = f_col1.text_input("🔍 Search", placeholder="Company or Role...", key="app_search_q")
+    filter_stage = f_col2.selectbox("Stage", ["All"] + ["Offer", "Rejected", "Applied", "Online Assessment"], key="app_filter_stage")
+    filter_status = f_col3.selectbox("Status", ["All", "Active", "Offer", "Rejected", "Withdrawn"], key="app_filter_status")
+    filter_type = f_col4.selectbox("Type", ["All", "Internship", "Full-time", "Part-time", "Other"], key="app_filter_type")
+    sort_order = f_col5.selectbox("Sort", ["Newest First", "Oldest First", "Company Name"], key="app_sort")
 
     conn = get_db_connection()
     query = "SELECT * FROM applications WHERE user_id = ?"
@@ -269,52 +366,75 @@ def render_applications(user_id):
 
     for idx, row in apps_df.iterrows():
         with st.container():
-            col_info, col_status, col_action = st.columns([3, 1, 1])
-            with col_info:
-                st.markdown(f"**{row['company']}** - {row['role']}")
-                st.caption(f"📅 {row['application_date']} | 📍 {row['location']} | 📄 {row['job_type']}")
-            with col_status:
-                badge_class = get_badge_class(row['current_stage'])
-                st.markdown(f'<span class="status-badge {badge_class}">{row["current_stage"]}</span>', unsafe_allow_html=True)
-            with col_action:
-                if st.button("View Details", key=f"det_{row['application_id']}"):
-                    st.session_state.view_app_id = row['application_id']
-                    st.rerun()
-            st.divider()
+            # Construct the full HTML card directly to avoid any potential issues with helper function return types
+            full_card_html = f"""
+                <div class="st-card" style="background-color: var(--bg-card) !important; padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--border-color) !important; box-shadow: var(--shadow-sm); margin-bottom: 1rem; color: var(--text-main) !important;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; color: var(--text-main); width: 100%;">
+                        <div style="display: flex; flex-direction: column; text-align: left;">
+                            <div style="font-size: 1.1rem; font-weight: 700; color: var(--text-main);">{row['company']}</div>
+                            <div style="font-size: 0.9rem; color: var(--text-muted);">{row['role']}</div>
+                        </div>
+                        <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end;">
+                            {render_badge(row['current_stage'], row['current_stage'])}
+                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">📅 {row['application_date']}</div>
+                        </div>
+                    </div>
+                </div>
+            """
+            st.markdown(full_card_html, unsafe_allow_html=True)
+
+            if st.button(f"View Details", key=f"det_{row['application_id']}", use_container_width=False):
+                st.session_state.view_app_id = row['application_id']
+                st.rerun()
+            st.markdown("<div style='margin-bottom: 1rem;'></div>", unsafe_allow_html=True)
 
     if 'view_app_id' in st.session_state:
         render_app_detail(st.session_state.view_app_id, user_id)
 
 def render_app_detail(app_id, user_id):
     st.markdown("---")
-    st.subheader(f"📄 Application Detail: App #{app_id}")
+    st.subheader(f"📄 Application Detail")
+
     conn = get_db_connection()
     app = conn.execute("SELECT * FROM applications WHERE application_id = ?", (app_id,)).fetchone()
     if not app:
         st.error("Application not found")
+        conn.close()
         return
 
     resume_name = "None"
+    ats_text = ""
     if app['resume_id']:
-        res = conn.execute("SELECT resume_name FROM resumes WHERE resume_id = ?", (app['resume_id'],)).fetchone()
-        if res: resume_name = res['resume_name']
+        res = conn.execute("SELECT resume_name, ats_text FROM resumes WHERE resume_id = ?", (app['resume_id'],)).fetchone()
+        if res:
+            resume_name = res['resume_name']
+            ats_text = res['ats_text']
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"**Company:** {app['company']}")
-        st.markdown(f"**Role:** {app['role']}")
-        st.markdown(f"**Location:** {app['location']}")
-        if app['job_url']:
-            st.markdown(f"**URL:** [Open Job Posting]({app['job_url']})")
-        else:
-            st.markdown(f"**URL:** Not provided")
-    with c2:
-        st.markdown(f"**Date:** {app['application_date']}")
-        st.markdown(f"**Type:** {app['job_type']}")
-        st.markdown(f"**Salary:** {app['salary']}")
-        st.markdown(f"**Overall Status:** {app['overall_status']}")
-        st.markdown(f"**Current Stage:** {app['current_stage']}")
-        st.markdown(f"**Resume Used:** {resume_name}")
+    # --- Metadata Grid ---
+    url_link = f'<a href="{app["job_url"]}" target="_blank" style="color: var(--primary);">Open Job Posting</a>' if app['job_url'] else 'Not provided'
+
+    # Use a simple div wrapper and direct st.markdown for the grid to avoid rendering issues
+    grid_html = f"""
+        <div style="background-color: var(--bg-card) !important; padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--border-color) !important; margin-bottom: 1rem; color: var(--text-main) !important;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div><strong style="color: var(--text-muted);">Company:</strong> {app['company']}</div>
+                    <div><strong style="color: var(--text-muted);">Role:</strong> {app['role']}</div>
+                    <div><strong style="color: var(--text-muted);">Location:</strong> {app['location']}</div>
+                    <div><strong style="color: var(--text-muted);">URL:</strong> {url_link}</div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div><strong style="color: var(--text-muted);">Date:</strong> {app['application_date']}</div>
+                    <div><strong style="color: var(--text-muted);">Type:</strong> {app['job_type']}</div>
+                    <div><strong style="color: var(--text-muted);">Salary:</strong> {app['salary']}</div>
+                    <div><strong style="color: var(--text-muted);">Overall Status:</strong> {app['overall_status']}</div>
+                    <div><strong style="color: var(--text-muted);">Current Stage:</strong> {app['current_stage']}</div>
+                    <div><strong style="color: var(--text-muted);">Resume Used:</strong> {resume_name}</div>
+                </div>
+            </div>
+        </div>
+    """
+    st.markdown(grid_html, unsafe_allow_html=True)
 
     st.divider()
     col_act1, col_act2, col_act3 = st.columns(3)
@@ -416,8 +536,8 @@ def render_app_detail(app_id, user_id):
                 del st.session_state.add_int_app_id
                 st.rerun()
 
-    with st.expander("⏰ Add a Task for this Job"):
-        with st.form("add_app_task_form"):
+    with st.expander("⏰ Add a Task for this Job", key=f"app_detail_task_expander_{app_id}"):
+        with st.form(f"app_detail_task_form_{app_id}"):
             t_desc = st.text_input("Task Description")
             t_date = st.date_input("Deadline")
             if st.form_submit_button("Save Task"):
@@ -432,7 +552,14 @@ def render_app_detail(app_id, user_id):
     st.write("⏳ **Application Timeline**")
     history = conn.execute("SELECT * FROM application_history WHERE application_id = ? ORDER BY changed_at ASC", (app_id,)).fetchall()
     for h in history:
-        st.markdown(f"**{h['changed_at'][:10]}** — {h['stage']} {f'({h['notes']})' if h['notes'] else ''}")
+        st.markdown(f"""
+        <div style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center;">
+            <div style="font-size: 0.85rem; color: var(--text-muted); min-width: 100px;">{h['changed_at'][:10]}</div>
+            <div style="flex-grow: 1; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: var(--shadow-sm); color: var(--text-main);">
+                <strong style="color: var(--text-main);">{h['stage']}</strong> {f'<span style="color: var(--text-muted); margin-left: 5px;">({h["notes"]})</span>' if h['notes'] else ''}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.divider()
     st.write("🎙️ **Linked Interviews**")
@@ -460,27 +587,36 @@ def render_app_detail(app_id, user_id):
     if not tasks:
         st.info("No tasks for this application.")
     for t in tasks:
-        col_t, col_check, col_del = st.columns([4, 1, 1])
-        with col_t:
-            st.markdown(f"📅 {t['deadline']} — {t['task_description']}")
-        with col_check:
-            if st.checkbox("Done", value=bool(t['completed']), key=f"chk_{t['task_id']}"):
-                cursor = conn.cursor()
-                cursor.execute("UPDATE tasks SET completed = ? WHERE task_id = ?", (1, t['task_id']))
-                conn.commit()
-                conn.close()
-                st.rerun()
-        with col_del:
-            if st.button("🗑️", key=f"del_t_{t['task_id']}"):
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM tasks WHERE task_id = ?", (t['task_id'],))
-                conn.commit()
-                conn.close()
-                st.rerun()
+        with st.container():
+            st.markdown(f"""
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px; color: var(--text-main);">
+                <div>
+                    <span style="font-size: 0.85rem; color: var(--text-muted); margin-right: 10px;">📅 {t['deadline']}</span>
+                    <span style="font-weight: 500; color: var(--text-main);">{t['task_description']}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            col_chk, col_del = st.columns([1, 1])
+            with col_chk:
+                if st.checkbox("Done", value=bool(t['completed']), key=f"chk_{t['task_id']}"):
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE tasks SET completed = ? WHERE task_id = ?", (1, t['task_id']))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+            with col_del:
+                if st.button("🗑️", key=f"del_t_{t['task_id']}"):
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM tasks WHERE task_id = ?", (t['task_id'],))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
 
     if st.button("Close Details", key="close_det_btn"):
         del st.session_state.view_app_id
         st.rerun()
+
+    conn.close()
 
     conn.close()
 
@@ -548,73 +684,267 @@ def render_interviews(user_id):
 
 def render_resumes(user_id):
     st.header("📄 Resume Manager")
+
     with st.expander("➕ Upload New Resume"):
         with st.form("upload_resume_form"):
             res_name = st.text_input("Resume Name (e.g. SWE_v1)")
-            uploaded_file = st.file_uploader("Choose PDF or DOCX", type=["pdf", "docx"])
-            if st.form_submit_button("Upload Resume", key="upload_res_submit"):
+            uploaded_file = st.file_uploader(
+                "Choose PDF or DOCX",
+                type=["pdf", "docx"]
+            )
+
+            if st.form_submit_button(
+                "Upload Resume",
+                key="upload_res_submit"
+            ):
                 if res_name and uploaded_file:
+
+                    if uploaded_file.type == "application/pdf":
+                        pdf_bytes = uploaded_file.getvalue()
+                        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+                        with st.expander("📄 Uploaded Resume Preview", expanded=True):
+                            st.markdown(
+                                f'<iframe src="data:application/pdf;base64,{pdf_base64}" '
+                                'width="100%" height="700" type="application/pdf"></iframe>',
+                                unsafe_allow_html=True
+                            )
+
                     file_ext = uploaded_file.name.split('.')[-1].lower()
-                    unique_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{res_name.replace(' ', '_')}.{file_ext}"
-                    file_path = os.path.join(RESUME_FOLDER, unique_filename)
+
+                    unique_filename = (
+                        f"{user_id}_"
+                        f"{datetime.now().strftime('%Y%m%d%H%M%S')}_"
+                        f"{res_name.replace(' ', '_')}."
+                        f"{file_ext}"
+                    )
+
+                    file_path = os.path.join(
+                        RESUME_FOLDER,
+                        unique_filename
+                    )
+
+                    # Save resume locally
                     with open(file_path, "wb") as f:
                         f.write(uploaded_file.getbuffer())
+
+                    # Save resume in database
                     conn = get_db_connection()
                     cursor = conn.cursor()
+
                     cursor.execute('''
-                        INSERT INTO resumes (user_id, resume_name, file_path, file_type, upload_date)
+                        INSERT INTO resumes
+                        (user_id, resume_name, file_path, file_type, upload_date)
                         VALUES (?, ?, ?, ?, ?)
-                    ''', (user_id, res_name, file_path, file_ext, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    ''', (
+                        user_id,
+                        res_name,
+                        file_path,
+                        file_ext,
+                        datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    ))
+
                     conn.commit()
                     conn.close()
+
                     st.success("Resume uploaded successfully!")
-                    st.rerun()
+
+                    # Send the same uploaded resume to OpenCATS
+                    with st.spinner("Sending resume to OpenCATS..."):
+                        try:
+                            result = send_resume_to_opencats(file_path)
+                        except Exception:
+                            result = {
+                                "success": False,
+                                "error": "OpenCATS is unavailable. The resume was saved locally, but parsing could not be completed."
+                            }
+
+                    if result["success"]:
+                        st.success(
+                            f"Resume successfully added to OpenCATS. "
+                            f"Candidate ID: {result['candidate_id']}"
+                        )
+
+                        # Get ATS extracted text
+                        ats_text = result.get("resume_text", "")
+
+                        # Save ATS text permanently to this resume
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+
+                        cursor.execute(
+                            """
+                            UPDATE resumes
+                            SET ats_text = ?
+                            WHERE user_id = ? AND file_path = ?
+                            """,
+                            (ats_text, user_id, file_path)
+                        )
+
+                        conn.commit()
+                        conn.close()
+
+                        # Show extracted text immediately
+                        st.subheader("🔍 ATS Extracted Text")
+
+                        if ats_text:
+                            st.text_area(
+                                "Text extracted by OpenCATS",
+                                ats_text,
+                                height=500
+                            )
+                        else:
+                            st.warning(
+                                "OpenCATS did not extract any text from this resume."
+                            )
+
+                    else:
+                        st.error(
+                            f"OpenCATS upload failed: {result['error']}"
+                        )
+
                 else:
                     st.error("Both name and file are required")
 
     st.divider()
+
+    # Load saved resumes including permanent ATS text
     conn = get_db_connection()
+
     resumes_df = pd.read_sql_query('''
-        SELECT resume_id, user_id, resume_name, file_path, file_type, upload_date
+        SELECT
+            resume_id,
+            user_id,
+            resume_name,
+            file_path,
+            file_type,
+            upload_date,
+            ats_text
         FROM resumes
         WHERE user_id = ?
     ''', conn, params=(user_id,))
+
     conn.close()
 
     if resumes_df.empty:
         st.info("No resumes uploaded yet.")
+
     else:
         for idx, row in resumes_df.iterrows():
+
             st.markdown("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
             col_info, col_action = st.columns([3, 1])
+
+            # Resume information
             with col_info:
-                st.markdown(f"**Resume:** {row['resume_name']}")
-                st.markdown(f"**Uploaded:** {row['upload_date'][:10] if row['upload_date'] else 'Unknown'}")
-                st.markdown(f"**Type:** {row['file_type'].upper() if row['file_type'] else 'Unknown'}")
+
+                st.markdown(
+                    f"**Resume:** {row['resume_name']}"
+                )
+
+                st.markdown(
+                    f"**Uploaded:** "
+                    f"{row['upload_date'][:10] if row['upload_date'] else 'Unknown'}"
+                )
+
+                st.markdown(
+                    f"**Type:** "
+                    f"{row['file_type'].upper() if row['file_type'] else 'Unknown'}"
+                )
+
+                # View permanently stored ATS text
+                if row['ats_text']:
+
+                    if st.button(
+                        "🔍 View ATS Text",
+                        key=f"view_ats_{row['resume_id']}"
+                    ):
+                        st.text_area(
+                            "OpenCATS Extracted Text",
+                            row['ats_text'],
+                            height=500,
+                            key=f"ats_text_display_{row['resume_id']}"
+                        )
+
+                else:
+                    st.caption("No ATS text available")
+
+            # Actions
             with col_action:
+
+                # View PDF
                 if row['file_type'] == 'pdf':
+
                     if os.path.exists(row['file_path']):
+
                         with open(row['file_path'], "rb") as f:
-                            pdf_base64 = base64.b64encode(f.read()).decode('utf-8')
-                            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_base64}" width="700" height="1000" type="application/pdf"></iframe>'
-                            if st.button("View Resume", key=f"view_res_{row['resume_id']}"):
-                                st.markdown(pdf_display, unsafe_allow_html=True)
+
+                            pdf_base64 = base64.b64encode(
+                                f.read()
+                            ).decode('utf-8')
+
+                            pdf_display = (
+                                f'<iframe '
+                                f'src="data:application/pdf;base64,{pdf_base64}" '
+                                f'width="700" '
+                                f'height="1000" '
+                                f'type="application/pdf">'
+                                f'</iframe>'
+                            )
+
+                            if st.button(
+                                "View Resume",
+                                key=f"view_res_{row['resume_id']}"
+                            ):
+                                st.markdown(
+                                    pdf_display,
+                                    unsafe_allow_html=True
+                                )
+
                     else:
                         st.error("File not found")
+
+                # Download resume
                 if os.path.exists(row['file_path']):
+
                     with open(row['file_path'], "rb") as f:
-                        st.download_button("Download", data=f, file_name=row['resume_name'] + "." + row['file_type'], key=f"dl_res_{row['resume_id']}")
+
+                        st.download_button(
+                            "Download",
+                            data=f,
+                            file_name=(
+                                row['resume_name']
+                                + "."
+                                + row['file_type']
+                            ),
+                            key=f"dl_res_{row['resume_id']}"
+                        )
+
                 else:
                     st.warning("File missing")
-                if st.button("🗑️ Delete", key=f"del_res_{row['resume_id']}"):
+
+                # Delete resume
+                if st.button(
+                    "🗑️ Delete",
+                    key=f"del_res_{row['resume_id']}"
+                ):
+
                     if os.path.exists(row['file_path']):
                         os.remove(row['file_path'])
+
                     conn = get_db_connection()
                     cursor = conn.cursor()
-                    cursor.execute("DELETE FROM resumes WHERE resume_id = ?", (row['resume_id'],))
+
+                    cursor.execute(
+                        "DELETE FROM resumes WHERE resume_id = ?",
+                        (row['resume_id'],)
+                    )
+
                     conn.commit()
                     conn.close()
+
                     st.rerun()
+
             st.markdown("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 def render_analytics(user_id):
@@ -901,6 +1231,417 @@ def render_settings(user_id):
         st.success("Account deleted successfully. You have been logged out.")
         st.rerun()
 
+def render_ai_analyzer(user_id):
+    st.markdown("## 🤖 AI Resume Analyzer")
+    st.markdown("Compare your ATS-parsed resume with a job description to identify relevant skills, terminology, and potential gaps.")
+
+    st.divider()
+
+    # Reuse the resume file and OpenCATS text saved by render_resumes().
+    conn = get_db_connection()
+    saved_resumes = conn.execute(
+        """
+        SELECT resume_id, resume_name, file_path, file_type, ats_text
+        FROM resumes
+        WHERE user_id = ?
+        ORDER BY upload_date DESC, resume_id DESC
+        """,
+        (user_id,)
+    ).fetchall()
+    conn.close()
+
+    resume_by_name = {
+        f"{resume['resume_name']} ({resume['file_type'].upper() if resume['file_type'] else 'FILE'})": resume
+        for resume in saved_resumes
+    }
+    selected_resume = None
+    if resume_by_name:
+        selected_name = st.selectbox(
+            "Uploaded Resume",
+            ["Paste manually"] + list(resume_by_name.keys()),
+            key="analyzer_resume_selection"
+        )
+        if selected_name != "Paste manually":
+            selected_resume = resume_by_name[selected_name]
+
+            with st.expander("📄 Uploaded Resume Preview", expanded=True):
+                if os.path.exists(selected_resume["file_path"]):
+                    if selected_resume["file_type"] == "pdf":
+                        with open(selected_resume["file_path"], "rb") as resume_file:
+                            pdf_base64 = base64.b64encode(resume_file.read()).decode("utf-8")
+                        st.markdown(
+                            f'<iframe src="data:application/pdf;base64,{pdf_base64}" '
+                            'width="100%" height="700" type="application/pdf"></iframe>',
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        with open(selected_resume["file_path"], "rb") as resume_file:
+                            resume_bytes = resume_file.read()
+                        st.download_button(
+                            "Download uploaded resume",
+                            data=resume_bytes,
+                            file_name=os.path.basename(selected_resume["file_path"]),
+                            key=f"analyzer_download_resume_{selected_resume['resume_id']}"
+                        )
+                else:
+                    st.warning("Uploaded resume file is not available.")
+
+            with st.expander("🔍 OpenCATS Parsed Resume Text", expanded=True):
+                if selected_resume["ats_text"]:
+                    st.text_area(
+                        "Text extracted by OpenCATS",
+                        selected_resume["ats_text"],
+                        height=400,
+                        key=f"analyzer_ats_text_{selected_resume['resume_id']}"
+                    )
+                else:
+                    st.info("No parsed resume text available.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        parsed_resume = st.text_area(
+            "ATS Parsed Resume",
+            value=selected_resume["ats_text"] if selected_resume else "",
+            placeholder="Paste the resume text extracted by the ATS/OpenCATS here...",
+            height=400
+        )
+
+    with col2:
+        job_description = st.text_area(
+            "Job Description",
+            placeholder="Paste the complete job description here...",
+            height=400
+        )
+
+    st.markdown(" ") # Spacer
+
+    if st.button("Analyze Resume", type="primary"):
+        if not parsed_resume or not job_description:
+            st.warning("Please provide both the ATS-parsed resume and the job description.")
+        else:
+            try:
+                with st.spinner("AI is analyzing your resume... Please wait."):
+                    # 1. Extract Requirements
+                    requirements = extract_jd_requirements(job_description)
+
+                    # 2. Get semantic analysis from existing analyzer
+                    # PASS REQUIREMENTS TO FORCE LABEL CONSISTENCY
+                    result = analyze_resume(parsed_resume, job_description, requirements=requirements)
+
+                    # 3. Calculate Weighted Match Score
+                    score, breakdown_data = calculate_match_score(requirements, result)
+
+                    # 4. Generate Explainable Report
+                    report = generate_explainable_report(requirements, result)
+
+
+                st.success("Analysis Complete!")
+                st.divider()
+
+                # --- CANONICAL DATA OBJECT ---
+                canonical_match_result = {
+                    "final_report": report,
+                    "ai_result": result,
+                    "jd_requirements": requirements
+                }
+
+                st.success("Analysis Complete!")
+                st.divider()
+
+                # Show the existing pipeline inputs and outputs before the final score.
+                with st.expander("📄 Resume Analysis / Parsed Resume Data", expanded=False):
+                    st.text_area(
+                        "OpenCATS Parsed Resume Text",
+                        parsed_resume,
+                        height=300,
+                        key="analysis_parsed_resume_display"
+                    )
+                    resume_analysis = {}
+                    if isinstance(result, dict):
+                        for analysis_key in ("resume_analysis", "resume_data", "parsed_resume_data"):
+                            if result.get(analysis_key):
+                                resume_analysis = result[analysis_key]
+                                break
+                    if resume_analysis:
+                        st.json(resume_analysis)
+
+                with st.expander("📋 Job Description Analysis / Extracted Requirements", expanded=False):
+                    if requirements:
+                        st.dataframe(
+                            [
+                                {
+                                    "Requirement": requirement.get("item", ""),
+                                    "Category": requirement.get("category", "General"),
+                                    "Importance": requirement.get("importance", "REQUIRED")
+                                }
+                                for requirement in requirements
+                                if isinstance(requirement, dict)
+                            ],
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        st.info("No job description requirements were extracted.")
+
+                with st.expander("🔗 Requirement Matching", expanded=False):
+                    matching_rows = []
+                    for status, items in (
+                        ("MATCHED", report.get("matched", [])),
+                        ("PARTIALLY MATCHED", report.get("partially_matched", [])),
+                        ("MISSING", report.get("missing", [])),
+                    ):
+                        for item in items:
+                            if isinstance(item, dict):
+                                matching_rows.append({
+                                    "Status": status,
+                                    "Requirement": item.get("item", ""),
+                                    "Evidence": item.get("evidence", ""),
+                                    "Reason": item.get("reason", "")
+                                })
+                    if matching_rows:
+                        st.dataframe(matching_rows, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No requirement matching data available.")
+
+                # --- PROMINENT MATCH SCORE ---
+                st.markdown(f"""
+                <div style="text-align: center; padding: 2rem; background-color: var(--bg-card); border: 2px solid var(--primary); border-radius: var(--radius-lg); margin-bottom: 2rem;">
+                    <div style="color: var(--text-muted); font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem;">RESUME–JOB MATCH</div>
+                    <div style="font-size: 4rem; font-weight: 800; color: var(--primary); margin-bottom: 0.5rem;">{score}%</div>
+                    <div style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 1rem;">Your resume has a {score}% match with this job description.</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); font-style: italic; max-width: 600px; margin: 0 auto;">
+                        This score measures how closely the information in your resume matches the requirements identified in this job description. <br>
+                        It is not a prediction of hiring probability.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # --- MATCH SCORE BREAKDOWN ---
+                st.markdown("#### 📊 Resume–JD Match Score Breakdown")
+                b_col1, b_col2 = st.columns(2)
+
+                with b_col1:
+                    summary = breakdown_data.get("summary", {})
+                    req = summary.get("Required", {"matched": 0, "total": 0})
+                    pref = summary.get("Preferred", {"matched": 0, "total": 0})
+                    st.markdown(f"**Required Skills:** {req['matched']:.1f} / {req['total']}")
+                    st.markdown(f"**Preferred Skills:** {pref['matched']:.1f} / {pref['total']}")
+
+                with b_col2:
+                    cats = breakdown_data.get("categories", {})
+                    for cat, perc in cats.items():
+                        st.markdown(f"**{cat}:** {perc}%")
+
+                st.markdown("---")
+                st.subheader("🤖 AI Analysis Results")
+
+                # Define a helper for safe item rendering
+                def get_item_text(item):
+                    if isinstance(item, str): return item
+                    if isinstance(item, dict):
+                        return item.get("item") or item.get("requirement") or item.get("text") or str(item)
+                    return str(item)
+
+                def get_valid_phrasing(items):
+                    valid_items = []
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        current = item.get("current_phrase") or item.get("original")
+                        suggested = (
+                            item.get("suggested_phrase")
+                            or item.get("suggested")
+                            or item.get("replacement")
+                        )
+                        if isinstance(current, str) and isinstance(suggested, str):
+                            current = current.strip()
+                            suggested = suggested.strip()
+                            if current and suggested:
+                                valid_items.append((item, current, suggested))
+                    return valid_items
+
+                # Result sections configuration
+                # format: (UI Title, Canonical Key, Data Source, Empty Message)
+                sections = [
+                    ("✅ MATCHED", "matched", "final_report", "No clearly represented skills found."),
+                    ("⚠ PARTIALLY MATCHED", "partially_matched", "final_report", "No conceptual matches found."),
+                    ("❌ MISSING", "missing", "final_report", "All requirements appear to be covered!"),
+                    ("📌 Important Job Requirements", "jd_requirements", "canonical", "No specific requirements identified."),
+                    ("🔎 Evidence Gaps", "evidence_gaps", "final_report", "No significant evidence gaps found."),
+                    ("💡 Safe Improvement Suggestions", "evidence_gaps", "final_report", "No improvement suggestions at this time."),
+                    ("🚀 Keyword Optimization", "keyword_optimization", "final_report", "No specific keywords identified for optimization.")
+                ]
+
+                for title, key, source, empty_msg in sections:
+                    st.markdown(f"### {title}")
+
+                    # Extract data from the correct source
+                    if source == "canonical":
+                        data = canonical_match_result.get(key)
+                    else:
+                        data_source = canonical_match_result.get(source, {})
+                        data = data_source.get(key)
+
+                    if data:
+                        if key == "jd_requirements":
+                            # Separate into Required and Preferred
+                            required = [r.get("item", "") for r in data if r.get("importance") == "REQUIRED"]
+                            preferred = [r.get("item", "") for r in data if r.get("importance") == "PREFERRED"]
+
+                            if required:
+                                st.markdown("**Required:**")
+                                for req_item in required:
+                                    st.markdown(f"- {req_item}")
+
+                            if preferred:
+                                st.markdown("**Preferred:**")
+                                for pref_item in preferred:
+                                    st.markdown(f"- {pref_item}")
+
+                        elif key == "keyword_optimization":
+                            # Handle Power Words (List of Strings or List of Dicts)
+                            # The AI is now instructed to append truthfulness warnings, so these may be strings or dicts.
+                            data_val = data if isinstance(data, dict) else {}
+                            if isinstance(data, dict) and data.get("keyword"):
+                                power_words = [data]
+                            elif isinstance(data, dict):
+                                power_words = data.get("missing_power_words", [])
+                            else:
+                                power_words = data
+
+                            if power_words:
+                                rendered_keywords = []
+                                for word in power_words:
+                                    if isinstance(word, dict):
+                                        word_text = word.get("keyword")
+                                        warning = word.get("warning") or word.get("reason") or "Add only if you genuinely have this experience."
+                                    elif isinstance(word, str):
+                                        word_text = word
+                                        warning = "Add only if you genuinely have this experience."
+                                    else:
+                                        continue
+                                    if not isinstance(word_text, str) or not word_text.strip():
+                                        continue
+                                    rendered_keywords.append((word_text.strip(), warning))
+
+                                if rendered_keywords:
+                                    st.markdown("**Missing Power Words:**")
+                                for word_text, warning in rendered_keywords:
+                                    st.markdown(f"""
+                                    <div class="analysis-card">
+                                        <div class="analysis-card-header">✨ {word_text}</div>
+                                        <div style="color: var(--text-muted); font-size: 0.9rem;">{warning}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+
+                            # Handle Phrasing Suggestions (List of Dicts)
+                            if isinstance(data, dict):
+                                phrasing = []
+                                for suggestions_key in (
+                                    "optimization_suggestions",
+                                    "suggested_phrasing_changes",
+                                    "suggested_phrasing",
+                                ):
+                                    suggestions = data.get(suggestions_key, [])
+                                    if isinstance(suggestions, list):
+                                        phrasing.extend(suggestions)
+                                phrasing = get_valid_phrasing(phrasing)
+                                if phrasing:
+                                    st.markdown("**Suggested Phrasing:**")
+                                    for sug, curr, sug_txt in phrasing:
+                                        reason = sug.get("reasoning", "")
+                                        st.markdown(f"""
+                                        <div class="analysis-card">
+                                            <div class="analysis-card-header">🔄 {curr} → {sug_txt}</div>
+                                            <div style="color: var(--text-muted); font-size: 0.9rem;">{reason}</div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+
+                        elif key == "evidence_gaps":
+                            # This block handles BOTH "Evidence Gaps" and "Safe Improvement Suggestions"
+                            # depending on which title is currently being rendered.
+                            if title == "🔎 Evidence Gaps":
+                                for gap in data:
+                                    if isinstance(gap, dict):
+                                        req_text = gap.get("requirement") or get_item_text(gap)
+                                        gap_text = gap.get("gap", "No gap described")
+                                        sug_text = gap.get("suggestion", "No suggestion provided")
+                                    else:
+                                        req_text = get_item_text(gap)
+                                        gap_text = "No gap described"
+                                        sug_text = "No suggestion provided"
+                                    st.markdown(f"""
+                                    <div class="analysis-card">
+                                        <div class="analysis-card-header">⚠️ {req_text}</div>
+                                        <div style="margin-bottom: 8px;"><strong>Gap:</strong> {gap_text}</div>
+                                        <div style="color: var(--primary);"><strong>Suggestion:</strong> {sug_text}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                            else:
+                                # Rendering for "💡 Safe Improvement Suggestions"
+                                suggestions_found = False
+                                for gap in data:
+                                    suggestion = gap.get("suggestion") if isinstance(gap, dict) else None
+                                    if suggestion:
+                                        suggestions_found = True
+                                        st.markdown(f"""
+                                        <div class="analysis-card">
+                                            <div class="analysis-card-header">💡 {suggestion}</div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+
+                                if not suggestions_found:
+                                    st.info(empty_msg)
+                                    # Skip the final empty_msg display at the end of the loop
+                                    continue
+
+                        elif key == "optimization_suggestions":
+                            # This key is no longer used in 'sections' but kept for safety
+                            for sug, curr, sug_txt in get_valid_phrasing(data):
+                                reason = sug.get("reasoning", "")
+
+                                st.markdown(f"""
+                                <div class="analysis-card">
+                                    <div class="analysis-card-header">💡 {curr} → {sug_txt}</div>
+                                    <div style="color: var(--text-muted); font-size: 0.9rem;">{reason}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                        else:
+                            # Generic renderer for MATCHED, PARTIAL, MISSING
+                            for item in data:
+                                item_txt = get_item_text(item)
+                                if key == "matched":
+                                    evidence = item.get('evidence', 'Matched') if isinstance(item, dict) else 'Matched'
+                                    content = f"**{item_txt}**: {evidence}"
+                                elif key == "partially_matched":
+                                    evidence = item.get('evidence', 'N/A') if isinstance(item, dict) else 'N/A'
+                                    reason = item.get('reason', 'N/A') if isinstance(item, dict) else 'N/A'
+                                    content = f"**{item_txt}**<br><small>Evidence: {evidence}<br>Reason: {reason}</small>"
+                                elif key == "missing":
+                                    reason = item.get('reason', 'No reason provided') if isinstance(item, dict) else 'No reason provided'
+                                    content = f"**{item_txt}**: {reason}"
+                                else:
+                                    content = str(item)
+
+                                st.markdown(f"""
+                                <div class="analysis-card">
+                                    <div>{content}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                    else:
+                        st.info(empty_msg)
+                    st.markdown(" ")
+
+            except ConnectionError as e:
+                st.error(str(e))
+            except RuntimeError as e:
+                st.error(str(e))
+            except ValueError as e:
+                st.error(str(e))
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
 
 # --- entry point ---
 if st.session_state.authenticated:
@@ -910,3 +1651,25 @@ else:
 
 if __name__ == "__main__":
     pass
+
+def get_opencats_text(attachment_id):
+    conn = mysql.connector.connect(
+        host="localhost",
+        port=3003,
+        user="root",
+        password="admin",
+        database="opencats"
+    )
+
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT text FROM attachment WHERE attachment_id = %s",
+        (attachment_id,)
+    )
+
+    result = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    return result[0] if result and result[0] else ""

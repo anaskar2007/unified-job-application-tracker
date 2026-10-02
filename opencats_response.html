@@ -1,0 +1,165 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>OpenCATS - Support</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="icon" href="images/favicon.ico" type="image/x-icon" />
+<link rel="shortcut icon" href="images/favicon.ico" type="image/x-icon" />
+<link rel="alternate" type="application/rss+xml" title="RSS" href="index.php?m=rss" />
+<script type="text/javascript" src="js/lib.js?v=1790246792"></script>
+<script type="text/javascript" src="js/quickAction.js?v=1790246792"></script>
+<script type="text/javascript" src="js/calendarDateInput.js?v=1790246792"></script>
+<script type="text/javascript" src="js/submodal/subModal.js?v=1790246792"></script>
+<script type="text/javascript" src="js/jquery-1.3.2.min.js?v=1790246792"></script>
+<script type="text/javascript">CATSIndexName = "index.php";</script>
+<script type="text/javascript">CATSCsrfToken = "173c5dd3c6169b4f6bd52d7b9d209b8dc4697709b6311929a912450ba17d78ce";</script>
+<script type="text/javascript">
+function catsInjectCSRFToken()
+{
+if (typeof CATSCsrfToken == "undefined" || CATSCsrfToken === null || CATSCsrfToken === "")
+{
+return;
+}
+var forms = document.getElementsByTagName("form");
+for (var i = 0; i < forms.length; i++)
+{
+var form = forms[i];
+var method = form.method;
+if (!method || method.toLowerCase() != "post")
+{
+continue;
+}
+var action = form.action;
+if (action && (action.indexOf("http://") == 0 || action.indexOf("https://") == 0))
+{
+var parser = document.createElement("a");
+parser.href = action;
+if (parser.host && parser.host.toLowerCase() != window.location.host.toLowerCase())
+{
+continue;
+}
+}
+var hasToken = false;
+if (form.elements)
+{
+for (var j = 0; j < form.elements.length; j++)
+{
+if (form.elements[j].name == "csrfToken")
+{
+hasToken = true;
+break;
+}
+}
+}
+if (hasToken)
+{
+continue;
+}
+var input = document.createElement("input");
+input.type = "hidden";
+input.name = "csrfToken";
+input.value = CATSCsrfToken;
+form.appendChild(input);
+}
+}
+var catsOldOnload = window.onload;
+window.onload = function()
+{
+if (catsOldOnload)
+{
+catsOldOnload();
+}
+catsInjectCSRFToken();
+};
+</script>
+<style type="text/css" media="all">@import "main.css?v=1790246792";</style>
+<!--[if IE]><link rel="stylesheet" type="text/css" href="ie.css?v=1790246792" /><![endif]-->
+<![if !IE]><link rel="stylesheet" type="text/css" href="not-ie.css?v=1790246792" /><![endif]>
+</head>
+<body style="background: #fff">
+<div class="ajaxSearchResults" id="singleQuickActionMenu" align="left" style="width:200px;" onclick="toggleVisibility()"></div><div id="popupMask">&nbsp;</div><div id="popupContainer"><div id="popupInner"><div id="popupTitleBar"><div id="popupTitle"></div><div id="popupControls"><img src="js/submodal/close.gif" alt="X" width="16" height="16" onclick="hidePopWin(false);" /></div></div><div style="width: 100%; height: 100%; background-color: transparent; display: none;" id="popupFrameDiv"></div><iframe src="js/submodal/loading.html" style="width: 100%; height: 100%; background-color: transparent; display: none;" scrolling="auto" frameborder="0" allowtransparency="true" id="popupFrameIFrame" width="100%" height="100%"></iframe></div></div><div id="headerBlock">
+<table cellspacing="0" cellpadding="0" style="margin: 0px; padding: 0px; float: left;">
+<tr>
+<td rowspan="2"><img src="images/applicationLogo.jpg" border="0" alt="CATS Applicant Tracking System" /></td>
+</tr>
+</table>
+<div id="topRight">
+<div style="padding-bottom: 8px;"><a href="http://www.opencats.org" target="_blank"><img src="images/tabs/small_upgrade.jpg" border="0" /> OpenCATS.org</a>&nbsp;&nbsp;&nbsp;&nbsp;
+<form id="logoutForm" name="logoutForm" method="post" action="index.php?m=logout" style="display: inline; padding: 0; margin: 0; border: 0;"><input type="hidden" name="csrfToken" value="173c5dd3c6169b4f6bd52d7b9d209b8dc4697709b6311929a912450ba17d78ce" /><button type="submit" class="linkButton"><img src="images/tabs/small_logout.jpg" border="0" /> Logout</button>
+</form>
+</div>
+<span>CATS Administrator&nbsp;&lt;admin&gt;&nbsp;(example.com)</span>
+&nbsp;<span style="font-weight:bold;">Administrator</span>
+<br /></div>
+</div>
+<style type="text/css">
+div.friendlyErrorTitle {
+font-size: 16pt;
+font-weight: bold;
+color: #444444;
+line-height: 14pt;
+font-family: Arial, Verdana, sans-serif;
+}
+div.friendlyErrorMessage {
+font-size: 9pt;
+color: #444444;
+line-height: 14pt;
+font-family: Arial, Verdana, sans-serif;
+}
+</style>
+<div id="header">
+<ul id="primary">
+<div id="header">
+<ul id="primary">
+<li><a class="inactive" href="index.php?m=home">Dashboard</a></li>
+<li><a class="inactive" href="index.php?m=activity">Activities</a></li>
+<li><a class="inactive" href="index.php?m=joborders">Job Orders</a></li>
+<li><a class="inactive" href="index.php?m=candidates">Candidates</a></li>
+<li><a class="inactive" href="index.php?m=companies">Companies</a></li>
+<li><a class="inactive" href="index.php?m=contacts">Contacts</a></li>
+<li><a class="inactive" href="index.php?m=lists">Lists</a></li>
+<li><a class="inactive" href="index.php?m=calendar">Calendar</a></li>
+<li><a class="inactive" href="index.php?m=reports">Reports</a></li>
+<li><a class="inactive" href="index.php?m=settings">Settings</a></li>
+</ul>
+</div>
+</ul>
+</div>
+<div id="main">
+<div id="MRUPanel">
+<div id="MRUBlock">
+<span class="MRUTitle">Recent:&nbsp;</span>&nbsp;<a href="index.php?m=candidates&amp;a=show&amp;candidateID=2" style="text-decoration: none;">John Smith</a>&nbsp;<span style="color: orange;">|</span>&nbsp;<a href="index.php?m=joborders&amp;a=show&amp;jobOrderID=1" style="text-decoration: none;">Software Engineering</a>&nbsp;<span style="color: orange;">|</span>&nbsp;<a href="index.php?m=candidates&amp;a=show&amp;candidateID=1" style="text-decoration: none;">Soham Sarkar</a>
+</div>
+<form id="quickSearchForm" action="index.php" method="get" onsubmit="return checkQuickSearchForm(document.quickSearchForm);">
+<div id="quickSearchBlock">
+<input type="hidden" name="m" value="home" />
+<input type="hidden" name="a" value="quickSearch" />
+<span class="quickSearchLabel" id="quickSearchLabel">Quick Search:</span>&nbsp;
+<input name="quickSearchFor" id="quickSearchFor" class="quickSearchBox" value="" />&nbsp;
+<input type="submit" name="quickSearch" class="button" value="Go" />&nbsp;
+</div>
+</form>
+</div>
+<div id="contents">
+<table style="padding: 25px;">
+<tr>
+<td align="left" valign="top" style="padding-right: 20px;">
+<img src="images/friendly_error.jpg" border="0" />
+</td>
+<td align="left" valign="top">
+<div class="friendlyErrorTitle">Invalid Information</div>
+<p />
+<div class="friendlyErrorMessage">
+Some of the information you provided doesn't follow the correct format and CATS can't interpret what it is. Please <a href="javascript:history.back()">go back</a> and complete each field paying close attention to any instructions provided. <p><b>Invalid request.</b>                                                                                </div>
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="footerBlock">
+<p id="footerText">OpenCATS Version 0.10.0. Powered by <a href="http://www.opencats.org/"><strong>OpenCATS</strong></a>.</p>
+<span id="footerResponse">Server Response Time: 0.01 seconds.</span><br /><span id="footerCopyright"></span>
+</div>
+</body>
+</html>
