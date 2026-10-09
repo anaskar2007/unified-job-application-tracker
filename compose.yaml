@@ -1,0 +1,42 @@
+name: opencats-docker
+
+services:
+  opencats:
+    container_name: opencats
+    image: opencats-docker-opencats
+    build:
+      context: ${OPENCATS_DOCKER_CONTEXT:?Set OPENCATS_DOCKER_CONTEXT to the opencats-docker directory}
+      dockerfile: Dockerfile
+    ports:
+      - "4000:80"
+    depends_on:
+      - opencats-db
+
+  opencats-db:
+    container_name: opencats-db
+    image: mysql:5.5
+    ports:
+      - "3003:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in your environment or .env file}
+      MYSQL_DATABASE: opencats
+      MYSQL_USER: user-here
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in your environment or .env file}
+    volumes:
+      - opencats-db-data:/var/lib/mysql
+
+  phpmyadmin:
+    container_name: phpmyadmin
+    image: phpmyadmin/phpmyadmin
+    ports:
+      - "8090:80"
+    depends_on:
+      - opencats-db
+    environment:
+      PMA_HOST: opencats-db
+      PMA_USER: user-here
+      PMA_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in your environment or .env file}
+
+volumes:
+  opencats-db-data:
+    name: opencats-docker_opencats-db-data
